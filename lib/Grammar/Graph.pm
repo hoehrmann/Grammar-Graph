@@ -71,14 +71,13 @@ use List::UtilsBy qw/partition_by/;
 use List::MoreUtils qw/uniq/;
 use List::Util qw/shuffle sum max/;
 use Storable qw/freeze thaw/;
-use YAML::XS;
 use Graph::SomeUtils qw/:all/;
 
 local $Storable::canonical = 1;
 
 our $PREFIX_SUFFIX_SEP = " # ";
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 our %EXPORT_TAGS = ( 'all' => [ qw(
 	
@@ -321,7 +320,7 @@ sub fa_expand_references {
   
   for (my $ix = 0; $ix < @topo; ++$ix) {
     my $comp = $topo[$ix];
-    say $comp;
+
     if ($comp =~ /\+/) {
       _replace_strongly_connected_component($self, $comp);
     } else {
