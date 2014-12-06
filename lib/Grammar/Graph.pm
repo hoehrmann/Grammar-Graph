@@ -77,7 +77,7 @@ local $Storable::canonical = 1;
 
 our $PREFIX_SUFFIX_SEP = " # ";
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 our %EXPORT_TAGS = ( 'all' => [ qw(
 	
@@ -242,10 +242,19 @@ sub _replace_direct_recursion {
   my $v = $symbols->{$id}{start_vertex};
 
   my @direct_refs = _find_refs($self, $id, $v);
-  
+
   for my $direct (@direct_refs) {
     my $final = $symbols->{$id}{final_vertex};
     my $start = $symbols->{$id}{start_vertex};
+    # TODO: After running `_do_replace_thing` this could check that
+    # `$final` has not become less reachable from `$start` than it
+    # was when entering this routine, and generate a warning if the
+    # graph did get corrupted here. This happens when there are
+    # cycles in the grammar and no alternative path through it. So
+    # replacing a non-terminal always adds more non-terminals that
+    # cannot be replaced by terminals in finitely many steps. The
+    # most basic example would be `A = A`. It might be good to test
+    # for this case long before entering this routine.
     _do_replace_thing($self, $direct, $start, $final);
   }
 }
@@ -326,7 +335,7 @@ sub fa_expand_references {
     } else {
       _replace_direct_recursion($self, $comp);
     }
-
+    
     for my $id (split/\+/, $comp) {
 
       my @things = map { _find_refs($self, $id,
