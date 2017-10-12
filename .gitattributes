@@ -1,0 +1,4 @@
+*.pm text eol=lf
+*.pl text eol=lf
+Changes text eol=lf
+
