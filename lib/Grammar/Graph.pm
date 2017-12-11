@@ -111,6 +111,26 @@ use Moose;
 extends 'Grammar::Formal::Empty';
 with qw/Grammar::Graph::Coupled/;
 
+package Grammar::Graph::If1;
+use Modern::Perl;
+use Moose;
+extends 'Grammar::Graph::Operand';
+
+package Grammar::Graph::If2;
+use Modern::Perl;
+use Moose;
+extends 'Grammar::Graph::Operand';
+
+package Grammar::Graph::Fi1;
+use Modern::Perl;
+use Moose;
+extends 'Grammar::Graph::Operand';
+
+package Grammar::Graph::Fi2;
+use Modern::Perl;
+use Moose;
+extends 'Grammar::Graph::Operand';
+
 #####################################################################
 # Prelude (character before any other)
 #####################################################################
@@ -570,6 +590,8 @@ sub _find_id_by_shortname {
 sub fa_prelude_postlude {
   my ($self, $shortname) = @_;
 
+  # TODO: move to pattern conversion
+
   my $s1 = $self->fa_add_state();
   my $s2 = $self->fa_add_state();
 
@@ -768,33 +790,41 @@ sub set_vertex_label {
 
 sub vertex_isa {
   my ($self, $v, $pkg) = @_;
-  return UNIVERSAL::isa($self->get_vertex_label($v), $pkg);
+  my $label = $self->get_vertex_label($v);
+  return undef unless $label;
+  return UNIVERSAL::isa($label, $pkg);
 }
 
 sub vertex_partner {
   my ($self, $v) = @_;
   my $label = $self->get_vertex_label($v);
-  return unless $label;
+  return undef unless $label;
   return unless UNIVERSAL::can($label, 'partner');
   return $label->partner;
 }
 
 sub is_terminal_vertex {
   my ($self, $v) = @_;
-  return unless $self->get_vertex_label($v);
+  return undef unless $self->get_vertex_label($v);
   return not $self->vertex_isa($v, 'Grammar::Formal::Empty');
 }
 
 sub is_push_vertex {
   my ($self, $v) = @_;
   return $self->vertex_isa($v, 'Grammar::Graph::Start')
-    || $self->vertex_isa($v, 'Grammar::Graph::If');
+    || $self->vertex_isa($v, 'Grammar::Graph::If')
+    || $self->vertex_isa($v, 'Grammar::Graph::If1')
+    || $self->vertex_isa($v, 'Grammar::Graph::If2')
+    ;
 }
 
 sub is_pop_vertex {
   my ($self, $v) = @_;
   return $self->vertex_isa($v, 'Grammar::Graph::Final')
-    || $self->vertex_isa($v, 'Grammar::Graph::Fi');
+    || $self->vertex_isa($v, 'Grammar::Graph::Fi')
+    || $self->vertex_isa($v, 'Grammar::Graph::Fi1')
+    || $self->vertex_isa($v, 'Grammar::Graph::Fi2')
+    ;
 }
 
 sub is_matching_couple {
@@ -822,7 +852,59 @@ sub _graph_copy_graph_without_terminal_out_edges {
   return $tmp
 }
 
+sub _toposort {
+  my ($self) = @_;
+
+  my @filters = (
+    sub { 0 },
+    sub { $self->is_terminal_vertex($_) },
+#    sub { $self->is_pop_vertex($_) },
+  );
+
+  my %topological_id;
+
+  for (my $filter_id = 0; $filter_id < @filters; ++$filter_id) {
+
+    my $g = Graph::Directed->new;
+
+    for my $v ( $self->g->vertices ) {
+      local $_ = $v;
+      next if $filters[$filter_id]->($_);
+      $g->add_edge( $v, $_ ) for $self->g->successors( $v );
+    }
+
+    my $scg = $g->strongly_connected_graph;
+
+    for (my $ix = 0; $scg->vertices; ++$ix) {
+      my @here = $scg->successorless_vertices;
+      $topological_id{$_}[$filter_id] = $ix
+        for map { split/\+/ } @here;
+      $scg->delete_vertices(@here);
+    }
+
+  }
+
+  my %p = partition_by {
+    pack 'N3', map { $_ // 0 } @{ $topological_id{$_} }, 0, 0, 0
+  } keys %topological_id;
+
+  return map { join '+', @{ $p{$_} } } reverse sort keys %p;
+}
+
 sub _create_vertex_to_topological {
+  my ($self) = @_;
+  my %result;
+
+  my $ix = 1;
+  for my $scc ($self->_toposort) {
+    $result{$_} = $ix for split/\+/, $scc;
+    $ix++;
+  }
+
+  return %result;
+}
+
+sub _create_vertex_to_topological_old {
   my ($self) = @_;
 
   my $tmp = _graph_copy_graph_without_terminal_out_edges($self);
@@ -876,8 +958,14 @@ sub fa_drop_rules_not_needed_for {
 #####################################################################
 sub fa_truncate {
   my ($self) = @_;
-  graph_truncate_to_vertices_between($self->g,
-    $self->start_vertex, $self->final_vertex);
+
+  graph_delete_vertices_except($self->g,
+    graph_vertices_between($self->g,
+      $self->start_vertex,
+      $self->final_vertex),
+    $self->start_vertex,
+    $self->final_vertex,
+  );
 }
 
 #####################################################################
@@ -1200,85 +1288,90 @@ sub convert_conjunction {
     my ($pattern, $fa, $root) = @_;
 
     return _convert_binary_operation($pattern,
-      $fa, $root, "conjunction");
+      $fa, $root, "#conjunction");
 }
 
 sub convert_ordered_conjunction {
     my ($pattern, $fa, $root) = @_;
 
     return _convert_binary_operation($pattern,
-      $fa, $root, "ordered_conjunction");
+      $fa, $root, "#ordered_conjunction");
 }
 
 sub convert_ordered_choice {
     my ($pattern, $fa, $root) = @_;
 
     return _convert_binary_operation($pattern,
-      $fa, $root, "ordered_choice");
+      $fa, $root, "#ordered_choice");
 }
 
 sub _convert_binary_operation {
     my ($pattern, $fa, $root, $op) = @_;
-    my $s1 = $fa->fa_add_state();
-    my $s2 = $fa->fa_add_state();
-    my $s3 = $fa->fa_add_state();
-    my $s4 = $fa->fa_add_state();
+    my $anon_start = $fa->fa_add_state();
+    my $anon_final = $fa->fa_add_state();
+    my $if = $fa->fa_add_state();
+    my $fi = $fa->fa_add_state();
 
-    my $op1 = Grammar::Graph::Operand->new(
-      position => $pattern->position, partner => $s3);
-    my $op2 = Grammar::Graph::Operand->new(
-      position => $pattern->position, partner => $s3);
-    my $op3 = Grammar::Graph::Operand->new(
-      position => $pattern->position, partner => $s4);
-    my $op4 = Grammar::Graph::Operand->new(
-      position => $pattern->position, partner => $s4);
+    my $if_p1 = $fa->fa_add_state();
+    my $if_p2 = $fa->fa_add_state();
+    my $p1_fi = $fa->fa_add_state();
+    my $p2_fi = $fa->fa_add_state();
 
-    my $c1 = $fa->fa_add_state(p => $op1);
-    my $c2 = $fa->fa_add_state(p => $op2);
-    my $c3 = $fa->fa_add_state(p => $op3);
-    my $c4 = $fa->fa_add_state(p => $op4);
-    
+    my $if_p1_label = Grammar::Graph::If1->new(
+      position => $pattern->position, partner => $p1_fi);
+    my $if_p2_label = Grammar::Graph::If2->new(
+      position => $pattern->position, partner => $p2_fi);
+    my $p1_fi_label = Grammar::Graph::Fi1->new(
+      position => $pattern->position, partner => $if_p1);
+    my $p2_fi_label = Grammar::Graph::Fi2->new(
+      position => $pattern->position, partner => $if_p2);
+
+    $fa->set_vertex_label($if_p1, $if_p1_label);
+    $fa->set_vertex_label($if_p2, $if_p2_label);
+    $fa->set_vertex_label($p1_fi, $p1_fi_label);
+    $fa->set_vertex_label($p2_fi, $p2_fi_label);
+
     my ($p1s, $p1f) = _add_to_automaton($pattern->p1, $fa, $root);
     my ($p2s, $p2f) = _add_to_automaton($pattern->p2, $fa, $root);
 
-    my $l3 = Grammar::Graph::If->new(
+    my $if_label = Grammar::Graph::If->new(
       position => $pattern->position,
-      partner => $s4,
-      p1 => $c1,
-      p2 => $c2,
+      partner => $fi,
+      p1 => $if_p1,
+      p2 => $if_p2,
       name => $op
     );
 
-    my $l4 = Grammar::Graph::Fi->new(
+    my $fi_label = Grammar::Graph::Fi->new(
       position => $pattern->position,
-      partner => $s3,
-      p1 => $c3,
-      p2 => $c4,
+      partner => $if,
+      p1 => $p1_fi,
+      p2 => $p2_fi,
       name => $op
     );
 
-    $fa->set_vertex_label($s3, $l3);
-    $fa->set_vertex_label($s4, $l4);
+    $fa->set_vertex_label($if, $if_label);
+    $fa->set_vertex_label($fi, $fi_label);
 
-    $fa->g->add_edge($c1, $p1s);
-    $fa->g->add_edge($c2, $p2s);
-    $fa->g->add_edge($p1f, $c3);
-    $fa->g->add_edge($p2f, $c4);
+    $fa->g->add_edge($if_p1, $p1s);
+    $fa->g->add_edge($if_p2, $p2s);
+    $fa->g->add_edge($p1f, $p1_fi);
+    $fa->g->add_edge($p2f, $p2_fi);
 
-    $fa->g->add_edge($s3, $c1);
-    $fa->g->add_edge($s3, $c2);
-    $fa->g->add_edge($c3, $s4);
-    $fa->g->add_edge($c4, $s4);
+    $fa->g->add_edge($if, $if_p1);
+    $fa->g->add_edge($if, $if_p2);
+    $fa->g->add_edge($p1_fi, $fi);
+    $fa->g->add_edge($p2_fi, $fi);
 
-    $fa->g->add_edge($s1, $s3);
-    $fa->g->add_edge($s4, $s2);
+    $fa->g->add_edge($anon_start, $if);
+    $fa->g->add_edge($fi, $anon_final);
     
-    return ($s1, $s2);
+    return ($anon_start, $anon_final);
 }
 
 sub convert_subtraction {
   my ($pattern, $fa, $root) = @_;
-  return _convert_binary_operation($pattern, $fa, $root, "and_not");
+  return _convert_binary_operation($pattern, $fa, $root, "#exclusion");
 }
 
 sub _add_to_automaton {
@@ -1384,3 +1477,4 @@ None.
   This module is licensed under the same terms as Perl itself.
 
 =cut
+
