@@ -329,7 +329,7 @@ sub _mauve_linear {
     $vd->{spans} = $convert_spans->(@{ $vd->{spans} // [] });
   }
 
-  Grammar::Graph::Mauve::InputDFA::add_input_dfa_to_data(\%m);
+#  Grammar::Graph::Mauve::InputDFA::add_input_dfa_to_data(\%m);
 
   %m = _renumber_vertices(\%m);
 

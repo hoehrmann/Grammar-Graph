@@ -1,169 +1,4 @@
 #####################################################################
-# Types
-#####################################################################
-package Grammar::Graph::Types;
-use Modern::Perl;
-use parent qw/Type::Library/;
-use Type::Utils;
-use Types::Standard qw/Int/;
-
-declare 'Vertex',
-  as Int,
-  where { $_ > 0 };
-
-#####################################################################
-# Role for non-terminal names
-#####################################################################
-package Grammar::Graph::Named;
-use Modern::Perl;
-use Moose::Role;
-
-has 'name' => (
-  is       => 'ro',
-  required => 1,
-  isa      => 'Str'
-);
-
-#####################################################################
-# Role for coupled vertices
-#####################################################################
-package Grammar::Graph::Coupled;
-use Modern::Perl;
-use Moose::Role;
-
-has 'partner' => (
-  is       => 'ro',
-  required => 1,
-  writer   => '_set_partner',
-  isa      => Grammar::Graph::Types::Vertex(),
-);
-
-#####################################################################
-# Start
-#####################################################################
-package Grammar::Graph::Start;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Formal::Empty';
-with 'Grammar::Graph::Coupled',
-     'Grammar::Graph::Named';
-     
-#####################################################################
-# Final
-#####################################################################
-package Grammar::Graph::Final;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Formal::Empty';
-with 'Grammar::Graph::Coupled',
-     'Grammar::Graph::Named';
-
-#####################################################################
-# Conditionals
-#####################################################################
-package Grammar::Graph::Conditional;
-use Modern::Perl;
-use Moose;
-
-extends qw/Grammar::Formal::Empty/;
-with qw/Grammar::Graph::Coupled/;
-
-has 'p1' => (
-  is       => 'ro',
-  required => 1,
-  isa      => Grammar::Graph::Types::Vertex()
-);
-
-has 'p2' => (
-  is       => 'ro',
-  required => 1,
-  isa      => Grammar::Graph::Types::Vertex()
-);
-
-has 'name' => (
-  is       => 'ro',
-  required => 1,
-  isa      => 'Str'
-);
-
-#####################################################################
-# If (start of conditional)
-#####################################################################
-package Grammar::Graph::If;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Graph::Conditional';
-
-#####################################################################
-# Fi (end of conditional)
-#####################################################################
-package Grammar::Graph::Fi;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Graph::Conditional';
-
-#####################################################################
-# Operands
-#####################################################################
-package Grammar::Graph::Operand;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Formal::Empty';
-with qw/Grammar::Graph::Coupled/;
-
-package Grammar::Graph::If1;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Graph::Operand';
-
-package Grammar::Graph::If2;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Graph::Operand';
-
-package Grammar::Graph::Fi1;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Graph::Operand';
-
-package Grammar::Graph::Fi2;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Graph::Operand';
-
-#####################################################################
-# Prelude (character before any other)
-#####################################################################
-package Grammar::Graph::Prelude;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Formal::CharClass';
-with qw/Grammar::Graph::Coupled/;
-
-has '+spans'  => (
-  required => 0,
-  default  => sub {
-    Set::IntSpan->new([-1])
-  },
-);
-
-#####################################################################
-# Postlude (character after any other)
-#####################################################################
-package Grammar::Graph::Postlude;
-use Modern::Perl;
-use Moose;
-extends 'Grammar::Formal::CharClass';
-with qw/Grammar::Graph::Coupled/;
-
-has '+spans'  => (
-  required => 0,
-  default  => sub {
-    Set::IntSpan->new([-1])
-  },
-);
-
-#####################################################################
 # Grammar::Graph
 #####################################################################
 package Grammar::Graph;
@@ -176,7 +11,9 @@ use List::Util qw/shuffle sum max/;
 use Storable qw/freeze thaw/;
 use Graph::SomeUtils qw/:all/;
 use Graph::Directed;
-use Moose;
+use Graph::Feather;
+use Moo;
+use Types::Standard qw/:all/;
 
 #####################################################################
 # Globals
@@ -184,7 +21,7 @@ use Moose;
 
 local $Storable::canonical = 1;
 
-our $VERSION = '0.20';
+our $VERSION = '0.21';
 
 our %EXPORT_TAGS = ( 'all' => [ qw(
 	
@@ -202,14 +39,16 @@ our @EXPORT = qw(
 has 'g' => (
   is       => 'ro',
   required => 1,
-  isa      => 'Graph::Directed',
-  default  => sub { Graph::Directed->new },
+#  isa      => 'Graph::Feather',
+  default  => sub { Graph::Feather->new },
+#  isa      => 'Graph::Directed',
+#  default  => sub { Graph::Directed->new },
 );
 
 has 'symbol_table' => (
   is       => 'ro',
   required => 1,
-  isa      => 'HashRef',
+  isa      => HashRef,
   default  => sub { {} },
 );
 
@@ -217,84 +56,43 @@ has 'start_vertex' => (
   is       => 'ro',
   required => 0, # FIXME?
   writer   => '_set_start_vertex',
-  isa      => Grammar::Graph::Types::Vertex(),
+#  isa      => Grammar::Graph::Types::Vertex(),
 );
 
 has 'final_vertex' => (
   is       => 'ro',
   required => 0, # FIXME?
   writer   => '_set_final_vertex',
-  isa      => Grammar::Graph::Types::Vertex(),
+#  isa      => Grammar::Graph::Types::Vertex(),
 );
 
 has 'pattern_converters' => (
   is       => 'ro',
   required => 1,
-  isa      => 'HashRef[CodeRef]',
+  isa      => HashRef[CodeRef],
   default  => sub { {
+#    'Grammar::Formal::NotAllowed' => \&convert_not_allowed,
     'Grammar::Formal::CharClass' => \&convert_char_class,
-    'Grammar::Formal::ProseValue' => \&convert_prose_value,
-    'Grammar::Formal::Reference' => \&convert_reference,
-    'Grammar::Formal::NotAllowed' => \&convert_not_allowed,
 
-    'Grammar::Formal::Range' => \&convert_range,
-    'Grammar::Formal::AsciiInsensitiveString'
-      => \&convert_ascii_insensitive_string,
-    'Grammar::Formal::CaseSensitiveString'
-      => \&convert_case_sensitive_string,
-
-    'Grammar::Formal::Grammar' => \&convert_grammar,
-    'Grammar::Formal' => \&convert_grammar_formal,
-    'Grammar::Formal::Rule' => \&convert_rule,
-
-    'Grammar::Formal::BoundedRepetition'
-      => \&convert_bounded_repetition,
-
-    'Grammar::Formal::SomeOrMore' => \&convert_some_or_more,
-    'Grammar::Formal::OneOrMore' => \&convert_one_or_more,
-    'Grammar::Formal::ZeroOrMore' => \&convert_zero_or_more,
-
-    'Grammar::Formal::Empty' => \&convert_empty,
-
-    'Grammar::Formal::Group' => \&convert_group,
-
-    'Grammar::Formal::Choice' => \&convert_choice,
-    'Grammar::Formal::Conjunction' => \&convert_conjunction,
-    'Grammar::Formal::Subtraction' => \&convert_subtraction,
-
-    'Grammar::Formal::OrderedChoice' => \&convert_ordered_choice,
-    'Grammar::Formal::OrderedConjunction'
-      => \&convert_ordered_conjunction,
-
+    'ref'                    => \&convert_reference,
+    'range'                  => \&convert_range,
+    'asciiInsensitiveString' => \&convert_ascii_insensitive_string,
+    'string'                 => \&convert_case_sensitive_string,
+    'grammar'                => \&convert_grammar_root,
+    'rule'                   => \&convert_rule,
+    'repetition'             => \&convert_bounded_repetition,
+    'someOrMore'             => \&convert_some_or_more,
+    'oneOrMore'              => \&convert_one_or_more,
+    'zeroOrMore'             => \&convert_zero_or_more,
+    'empty'                  => \&convert_empty,
+    'group'                  => \&convert_group,
+    'choice'                 => \&convert_choice,
+    'conjunction'            => \&convert_conjunction,
+    'exclusion'              => \&convert_subtraction,
+    'orderedChoice'          => \&convert_ordered_choice,
+    'orderedConjunction'     => \&convert_ordered_conjunction,
   } },
 );
-
-sub reversed_copy {
-  my ($self) = @_;
-
-  my $g = Graph::Directed->new;
-
-  $g->add_edge(reverse @$_) for $self->g->edges;
-
-  my $copy = $self->new(%{ $self }, g => $g);
-
-  for my $v ($self->g->vertices) {
-    my $label = $self->get_vertex_label($v);
-    next unless $label;
-    if (0 && UNIVERSAL::can($label, 'partner')) {
-      my $cloned = $label->new(%$label, partner => $v);
-      $copy->set_vertex_label($label->partner, $cloned);
-    } else {
-      my $cloned = $label->new(%$label);
-      $copy->set_vertex_label($v, $cloned);
-    }
-  }
-
-  $copy->_set_start_vertex($self->final_vertex);
-  $copy->_set_final_vertex($self->start_vertex);
-
-  return $copy;
-}
 
 #####################################################################
 # Helper functions
@@ -332,6 +130,7 @@ sub register_converter {
 
 sub find_converter { 
   my ($self, $pkg) = @_;
+  return unless defined $pkg;
   return $self->pattern_converters->{$pkg};
 }
 
@@ -357,12 +156,12 @@ sub _fa_next_id {
 sub fa_add_state {
   my ($self, %o) = @_;
   
-  my $expect = $o{p} // Grammar::Formal::Empty->new;
+  my $expect = $o{p};
   
   my $id = $self->_fa_next_id();
   $self->g->add_vertex($id);
-  $self->set_vertex_label($id, $expect)
-    if defined $expect;
+
+  die if defined $expect;
 
   return $id;
 }
@@ -378,14 +177,6 @@ sub fa_all_e_reachable {
   }
   keys %seen;
 }
-
-# from => $vertex, 
-# want => sub { ... }, 
-# next => sub { ... },
-
-# self => 'always|never|if_reachable'
-# vertex_if => sub { ... }
-# successors_if => sub { ... }
 
 sub all_reachable {
   my ($g, $source, $cond) = @_;
@@ -405,30 +196,24 @@ sub all_reachable {
 #####################################################################
 # Helper function to clone label when cloning subgraph
 #####################################################################
-sub _clone_label {
-  my ($self, $label, $want, $map) = @_;
+sub _clone_label_to {
+  my ($self, $k, $to, $want, $map) = @_;
 
-  return unless UNIVERSAL::can($label, 'meta');
+  for my $att ($self->g->get_vertex_attribute_names($k)) {
 
-  my %ref_vertex_map;
+    my $value = $self->g->get_vertex_attribute($k, $att);
 
-  for my $att ($label->meta->get_all_attributes) {
+    $self->g->set_vertex_attribute($to, $att, $value);
 
-    my $tc = $att->type_constraint;
+    next unless $att =~ /^(p1|p2|partner)$/;
 
-    next unless $tc;
-    next unless $tc->equals(Grammar::Graph::Types::Vertex());
+    warn "Trying to clone subgraph without cloning label vertices (" . $att . ")"
+      unless $want->{ $value };
 
-    warn "Trying to clone subgraph without cloning label vertices (" . $att->name . ")"
-      unless $want->{ $att->get_value($label) };
+    $map->{ $value } //= $self->fa_add_state();
 
-    $map->{ $att->get_value($label) } //= $self->fa_add_state();
-
-    $ref_vertex_map{ $att->name } =
-      $map->{ $att->get_value($label) };
+    $self->g->set_vertex_attribute($to, $att, $map->{ $value });
   }
-
-  return $label->new(%$label, %ref_vertex_map)
 }
 
 #####################################################################
@@ -446,11 +231,7 @@ sub _clone_subgraph_between {
 
     $map{$k} //= $self->fa_add_state();
 
-    my $label = $self->get_vertex_label($k);
-    my $cloned_label = _clone_label($self, $label, \%want, \%map);
-
-    $self->set_vertex_label($map{$k}, 
-      $cloned_label // $label);
+    _clone_label_to($self, $k, $map{$k}, \%want, \%map);
   }
 
   while (my ($old, $new) = each %map) {
@@ -481,9 +262,10 @@ sub _fa_ref_graph {
   for my $r1 (keys %$symbols) {
     my $v = $symbols->{$r1};
     for (graph_all_successors_and_self($self->g, $v->{start_vertex})) {
-      next unless $self->vertex_isa($_, 'Grammar::Formal::Reference');
-      my $label = $self->get_vertex_label($_);
-      my $r2 = $label->expand;
+      next unless $self->vertex_isa_reference($_);
+
+      my $r2 = $self->vp_name($_);
+
       $ref_graph->add_edge("$r1", "$r2");
 #      $ref_graph->add_edge("$r1", "$_");
 #      $ref_graph->add_edge("$_", "$r2");
@@ -499,26 +281,32 @@ sub _fa_ref_graph {
 sub fa_expand_one_by_copying {
   my ($self, $id) = @_;
 
+  # FIXME(bh): It is evil to steal private variable
+  my @ref_vertices = map { @$_ } $self->g->{dbh}->selectall_array(q{
+    SELECT
+      vertex
+    FROM
+      Vertex_Attribute
+    WHERE
+      attribute_name = "type"
+      AND attribute_value = "Reference"
+  });
+
   my %id_to_refs = partition_by {
-    $self->get_vertex_label($_)->expand . ''
-  } grep {
-    $self->vertex_isa($_, 'Grammar::Formal::Reference')
-  } $self->g->vertices;
+    $self->vp_name($_);
+  } @ref_vertices;
 
   for my $v (@{ $id_to_refs{$id} }) {
-    my $label = $self->get_vertex_label($v);
-
     my ($src, $dst) = $self->_clone_non_terminal($id);
 
     $self->_copy_predecessors($v, $src);
     $self->_copy_successors($v, $dst);
-    graph_delete_vertex_fast($self->g, $v);
+    $self->g->delete_vertex($v);
   }
 }
 
 sub fa_expand_references {
   my ($self) = @_;
-  my $symbols = $self->symbol_table;
 
   my $ref_graph = $self->_fa_ref_graph;
   my $scg = $ref_graph->strongly_connected_graph;
@@ -532,11 +320,10 @@ sub fa_expand_references {
   }
 
   for my $v ($self->g->vertices) {
-    my $label = $self->get_vertex_label($v);
 
-    next unless $self->vertex_isa($v, 'Grammar::Formal::Reference');
+    next unless $self->vertex_isa_reference($v);
 
-    my $id = $label->expand;
+    my $id = $self->vp_name( $v );
 
     # TODO: explain
     # TODO: remove
@@ -546,16 +333,15 @@ sub fa_expand_references {
     my $v1 = $self->fa_add_state();
     my $v2 = $self->fa_add_state();
 
-    my $name = $label->expand->name;
+    my $name = $self->vp_name($v);
 
-    my $p1 = Grammar::Graph::Start->new(
-      partner => $v2, name => $name);
-      
-    my $p2 = Grammar::Graph::Final->new(
-      partner => $v1, name => $name);
+    $self->vp_type($v1, 'Start');
+    $self->vp_partner($v1, $v2);
+    $self->vp_name($v1, $name);
 
-    $self->set_vertex_label($v1, $p1);
-    $self->set_vertex_label($v2, $p2);
+    $self->vp_type($v2, 'Final');
+    $self->vp_partner($v2, $v1);
+    $self->vp_name($v2, $name);
 
     my ($start, $final) = $self->_find_endpoints($id);
 
@@ -565,11 +351,11 @@ sub fa_expand_references {
     $self->_copy_successors($v, $v2);
     $self->_copy_predecessors($final, $v2);
     
-    graph_delete_vertex_fast($self->g, $v);
+    $self->g->delete_vertex($v);
   }
 
   for my $v ($self->g->vertices) {
-    die if $self->vertex_isa($v, 'Grammar::Formal::Reference');
+    die if $self->vertex_isa_reference($v);
   }
 
 }
@@ -598,17 +384,19 @@ sub fa_prelude_postlude {
   my $sS = $self->fa_add_state();
   my $sF = $self->fa_add_state();
 
-  my $p1 = Grammar::Graph::Prelude->new(partner => $s2);
-  my $p2 = Grammar::Graph::Postlude->new(partner => $s1);
+  $self->vp_type($s1, 'Prelude');
+  $self->vp_partner($s1, $s2);
 
-  my $pS = Grammar::Graph::Start->new(name => "", partner => $sF);
-  my $pF = Grammar::Graph::Final->new(name => "", partner => $sS);
+  $self->vp_type($s2, 'Postlude');
+  $self->vp_partner($s2, $s1);
 
-  $self->set_vertex_label($s1, $p1);
-  $self->set_vertex_label($s2, $p2);
+  $self->vp_type($sS, 'Start');
+  $self->vp_name($sS, '');
+  $self->vp_partner($sS, $sF);
 
-  $self->set_vertex_label($sS, $pS);
-  $self->set_vertex_label($sF, $pF);
+  $self->vp_type($sF, 'Final');
+  $self->vp_name($sF, '');
+  $self->vp_partner($sF, $sS);
 
   my $id = _find_id_by_shortname($self, $shortname);
 
@@ -648,8 +436,7 @@ sub fa_remove_useless_epsilons {
   my %deleted;
 
   for my $v (sort @todo) {
-    my $label = $graph->get_vertex_label($v);
-    next if defined $label and ref($label) ne 'Grammar::Formal::Empty';
+    next unless $graph->vertex_is_useless($v);
     next unless $graph->g->successors($v); # FIXME(bh): why?
     next unless $graph->g->predecessors($v); # FIXME(bh): why?
     for my $src ($graph->g->predecessors($v)) {
@@ -659,7 +446,7 @@ sub fa_remove_useless_epsilons {
     }
     $deleted{$v}++;
   }
-  graph_delete_vertices_fast($graph->g, keys %deleted);
+  $graph->g->delete_vertices(keys %deleted);
 };
 
 #####################################################################
@@ -674,8 +461,7 @@ sub fa_merge_character_classes {
       [sort $self->g->successors($_)]
     ];
   } grep {
-    my $label = $self->get_vertex_label($_);
-    $label and $label->isa('Grammar::Formal::CharClass');
+    $self->vertex_isa_charclass($_)
   } $self->g->vertices;
   
   require Set::IntSpan;
@@ -686,11 +472,11 @@ sub fa_merge_character_classes {
     my $min_pos;
 
     for my $vertex (@$v) {
-      my $label = $self->get_vertex_label($vertex);
-      $union->U($label->spans);
-      $min_pos //= $label->position;
-      $min_pos = $label->position if defined $label->position
-        and $label->position < $min_pos;
+      my $char_obj = $self->get_vertex_char_object($vertex);
+      $union->U($char_obj->spans);
+      $min_pos //= $char_obj->position;
+      $min_pos = $char_obj->position if defined $char_obj->position
+        and $char_obj->position < $min_pos;
     }
 
     my $class = Grammar::Formal::CharClass->new(
@@ -698,12 +484,14 @@ sub fa_merge_character_classes {
       position => $min_pos
     );
 
-    my $state = $self->fa_add_state(p => $class);
+    my $state = $self->fa_add_state();
+    $self->vp_type($state, ref $class);
+    $self->vp_char_obj($state, $class);
 
     $self->_copy_predecessors($v->[0], $state);
     $self->_copy_successors($v->[0], $state);
 
-    graph_delete_vertices_fast($self->g, @$v);
+    $self->g->delete_vertices(@$v);
   }
 }
 
@@ -716,12 +504,11 @@ sub fa_separate_character_classes {
   require Set::IntSpan::Partition;
   
   my @vertices = grep {
-    my $label = $self->get_vertex_label($_);
-    $label and $label->isa('Grammar::Formal::CharClass')
+    $self->vertex_isa_charclass($_)
   } $self->g->vertices;
 
   my @classes = map {
-    $self->get_vertex_label($_)->spans;
+    $self->get_vertex_char_object($_)->spans;
   } @vertices;
   
   my %map = Set::IntSpan::Partition::intspan_partition_map(@classes);
@@ -729,17 +516,22 @@ sub fa_separate_character_classes {
   for (my $ix = 0; $ix < @vertices; ++$ix) {
     for (@{ $map{$ix} }) {
     
-      my $label = $self->get_vertex_label($vertices[$ix]);
+      my $char_obj = $self->get_vertex_char_object($vertices[$ix]);
 
-      my $state = $self->fa_add_state(p =>
-        Grammar::Formal::CharClass->new(spans => $_,
-          position => $label->position));
-      
+      my $class = Grammar::Formal::CharClass->new(spans => $_,
+          position => $char_obj->position);
+
+      my $state = $self->fa_add_state();
+
+      $self->vp_type($state, ref $class);
+      $self->vp_char_obj($state, $class);
+      $self->vp_position($state, $char_obj->position);
+
       $self->_copy_predecessors($vertices[$ix], $state);
       $self->_copy_successors($vertices[$ix], $state);
     }
     
-    graph_delete_vertex_fast($self->g, $vertices[$ix]);
+    $self->g->delete_vertex($vertices[$ix]);
   }
   
 }
@@ -747,20 +539,8 @@ sub fa_separate_character_classes {
 #####################################################################
 # ...
 #####################################################################
-sub _delete_not_allowed {
-  my ($self) = @_;
-  graph_delete_vertex_fast($self->g, $_) for grep {
-    my $label = $self->get_vertex_label($_);
-    $label and $label->isa('Grammar::Formal::NotAllowed');
-  } $self->g->vertices;
-}
-
-#####################################################################
-# ...
-#####################################################################
 sub _delete_unreachables {
   my ($self) = @_;
-  my $symbols = $self->symbol_table;
   my %keep;
   
   $keep{$_}++ for map {
@@ -768,9 +548,9 @@ sub _delete_unreachables {
     # Always keep final vertices
     my @fin = $_->{final_vertex};
     (@suc, @fin);
-  } values %$symbols;
+  } values %{ $self->symbol_table };
 
-  graph_delete_vertices_fast($self->g, grep {
+  $self->g->delete_vertices(grep {
     not $keep{$_}
   } $self->g->vertices);
 }
@@ -778,61 +558,67 @@ sub _delete_unreachables {
 #####################################################################
 # Utils
 #####################################################################
-sub get_vertex_label {
-  my ($self, $v) = @_;
-  return $self->g->get_vertex_attribute($v, 'label');
-} 
 
-sub set_vertex_label {
-  my ($self, $v, $value) = @_;
-  $self->g->set_vertex_attribute($v, 'label', $value);
-} 
+sub get_vertex_char_object {
+  my ($self, $v) = @_;
+  return unless $self->vertex_isa_charclass($v);
+  my $label = $self->g->get_vertex_attribute($v, 'char_obj');
+  die unless defined $label;
+  die unless ref $label eq 'Grammar::Formal::CharClass';
+  return $label;
+}
 
 sub vertex_isa {
   my ($self, $v, $pkg) = @_;
-  my $label = $self->get_vertex_label($v);
-  return undef unless $label;
-  return UNIVERSAL::isa($label, $pkg);
+
+  my $type = $self->vp_type($v);
+
+  return (($type // '') eq $pkg);
 }
 
-sub vertex_partner {
+sub vertex_isa_reference { vertex_isa(@_, 'Grammar::Formal::Reference') };
+sub vertex_isa_charclass { vertex_isa(@_, 'Grammar::Formal::CharClass') };
+
+sub vertex_isa_prelude { vertex_isa(@_, 'Prelude') };
+sub vertex_isa_postlude { vertex_isa(@_, 'Postlude') };
+
+sub vertex_is_useless {
   my ($self, $v) = @_;
-  my $label = $self->get_vertex_label($v);
-  return undef unless $label;
-  return unless UNIVERSAL::can($label, 'partner');
-  return $label->partner;
+  return ($self->vp_type($v) // 'Empty') eq 'Empty';
 }
 
 sub is_terminal_vertex {
   my ($self, $v) = @_;
-  return undef unless $self->get_vertex_label($v);
-  return not $self->vertex_isa($v, 'Grammar::Formal::Empty');
+  # TODO(bh): anomaly with Reference?
+  return 1 if $self->vertex_isa_prelude($v);
+  return 1 if $self->vertex_isa_postlude($v);
+  return 1 if $self->vertex_isa_charclass($v);
+  return 0;
 }
 
-sub is_push_vertex {
-  my ($self, $v) = @_;
-  return $self->vertex_isa($v, 'Grammar::Graph::Start')
-    || $self->vertex_isa($v, 'Grammar::Graph::If')
-    || $self->vertex_isa($v, 'Grammar::Graph::If1')
-    || $self->vertex_isa($v, 'Grammar::Graph::If2')
-    ;
+#####################################################################
+# ...
+#####################################################################
+
+sub _vp_property {
+  my ($name, $self, $vertex, $value) = @_;
+
+  my $old = $self->g->get_vertex_attribute($vertex, $name);
+
+  if (@_ > 3) {
+    $self->g->set_vertex_attribute($vertex, $name, $value);
+  }
+
+  return $old;
 }
 
-sub is_pop_vertex {
-  my ($self, $v) = @_;
-  return $self->vertex_isa($v, 'Grammar::Graph::Final')
-    || $self->vertex_isa($v, 'Grammar::Graph::Fi')
-    || $self->vertex_isa($v, 'Grammar::Graph::Fi1')
-    || $self->vertex_isa($v, 'Grammar::Graph::Fi2')
-    ;
-}
-
-sub is_matching_couple {
-  my ($self, $v1, $v2) = @_;
-  my $label = $self->get_vertex_label($v1);
-  return unless UNIVERSAL::can($label, 'partner');
-  return $label->partner eq $v2;
-}
+sub vp_partner { _vp_property('partner', @_) }
+sub vp_p1 { _vp_property('p1', @_) }
+sub vp_p2 { _vp_property('p2', @_) }
+sub vp_name { _vp_property('name', @_) }
+sub vp_type { _vp_property('type', @_) }
+sub vp_char_obj { _vp_property('char_obj', @_) }
+sub vp_position { _vp_property('position', @_) }
 
 #####################################################################
 # Constructor
@@ -971,12 +757,20 @@ sub fa_truncate {
 #####################################################################
 # Constructor
 #####################################################################
-sub from_grammar_formal {
+sub from_jet {
+  my ($class, $formal, $shortname, %options) = @_;
+  my $cloned = Storable::dclone $formal;
+  require Parse::ABNF;
+  # FIXME(bh): it is evil to call private methods
+  Parse::ABNF::_make_jet_binary($cloned);
+  return from_binary_jet($class, $cloned, $shortname, %options);
+}
+
+sub from_binary_jet {
   my ($class, $formal, $shortname, %options) = @_;
   my $self = $class->new;
 
   _add_to_automaton($formal, $self);
-  _delete_not_allowed($self);
   fa_remove_useless_epsilons($self, $self->g->vertices);
   _delete_unreachables($self);
 
@@ -997,6 +791,8 @@ sub from_grammar_formal {
 #####################################################################
 sub _bound_repetition {
   my ($min, $max, $child, $fa, $root) = @_;
+
+  # FIXME: rename because it also handles unbounded repetition?
 
   die if defined $max and $min > $max;
   
@@ -1048,12 +844,45 @@ sub _bound_repetition {
 }
 
 #####################################################################
+# Helper functions
+#####################################################################
+
+sub _pattern_p1       { my ($pattern) = @_; my $result = eval { $pattern->[2]->[0] }; return $result unless $@; use Data::Dumper; die Dumper $pattern;  }
+sub _pattern_p2       { my ($pattern) = @_; $pattern->[2]->[1] }
+sub _pattern_p        { my ($pattern) = @_; $pattern->[2]->[0] }
+sub _pattern_min      { my ($pattern) = @_; $pattern->[1]->{min} }
+sub _pattern_max      { my ($pattern) = @_; $pattern->[1]->{max} }
+
+sub _pattern_first      { my ($pattern) = @_; $pattern->[1]->{first} }
+sub _pattern_last      { my ($pattern) = @_; $pattern->[1]->{last} }
+
+sub _pattern_name     { my ($pattern) = @_; $pattern->[1]->{name} }
+sub _pattern_position { my ($pattern) = @_; $pattern->[1]->{position} }
+sub _pattern_rules    { my ($pattern) = @_;
+  return {
+    map { $_->[1]->{name}, $_ }
+    grep { $_->[0] eq 'rule' }
+    @{ $pattern->[2] }
+  };
+}
+
+sub _pattern_value    { my ($pattern) = @_;
+  return $pattern->[1]->{text} if $pattern->[0] eq 'asciiInsensitiveString';
+  return $pattern->[1]->{text} if $pattern->[0] eq 'string';
+  die "trying to get value for " . $pattern->[0]
+}
+
+#####################################################################
 # Collection of sub routines that write patterns to the graph
 #####################################################################
 sub convert_char_class {
     my ($pattern, $fa, $root) = @_;
     my $s1 = $fa->fa_add_state;
-    my $s2 = $fa->fa_add_state(p => $pattern);
+    my $s2 = $fa->fa_add_state();
+
+    $fa->vp_type($s2, ref $pattern);
+    $fa->vp_char_obj($s2, $pattern);
+
     my $s3 = $fa->fa_add_state;
     $fa->g->add_edge($s1, $s2);
     $fa->g->add_edge($s2, $s3);
@@ -1061,6 +890,8 @@ sub convert_char_class {
   }
 
 sub convert_prose_value {
+    ...;
+
     my ($pattern, $fa, $root) = @_;
     my $s1 = $fa->fa_add_state;
     my $s2 = $fa->fa_add_state(p => $pattern);
@@ -1073,7 +904,12 @@ sub convert_prose_value {
 sub convert_reference {
     my ($pattern, $fa, $root) = @_;
     my $s1 = $fa->fa_add_state;
-    my $s2 = $fa->fa_add_state(p => $pattern);
+    my $s2 = $fa->fa_add_state();
+
+    # FIXME !!!!!!!!!!!!!!!!!!
+    $fa->vp_type($s2, 'Grammar::Formal::Reference');
+    $fa->vp_name($s2, _pattern_name($pattern));
+
     my $s3 = $fa->fa_add_state;
     $fa->g->add_edge($s1, $s2);
     $fa->g->add_edge($s2, $s3);
@@ -1083,17 +919,26 @@ sub convert_reference {
 sub convert_not_allowed {
     my ($pattern, $fa, $root) = @_;
     my $s1 = $fa->fa_add_state;
-    my $s2 = $fa->fa_add_state(p => $pattern);
+#    my $s2 = $fa->fa_add_state(p => $pattern);
     my $s3 = $fa->fa_add_state;
-    $fa->g->add_edge($s1, $s2);
-    $fa->g->add_edge($s2, $s3);
+#    $fa->g->add_edge($s1, $s2);
+#    $fa->g->add_edge($s2, $s3);
     return ($s1, $s3);
   }
 
 sub convert_range {
     my ($pattern, $fa, $root) = @_;
-    my $char_class = Grammar::Formal::CharClass
-      ->from_numbers_pos($pattern->position, $pattern->min .. $pattern->max);
+
+    my $spans = Set::IntSpan->new([[
+      _pattern_first($pattern),
+      _pattern_last($pattern),
+    ]]);
+
+    my $char_class = Grammar::Formal::CharClass->new(
+      position => _pattern_position($pattern),
+      spans => $spans,
+    );
+
     return _add_to_automaton($char_class, $fa, $root);
   }
 
@@ -1104,16 +949,16 @@ sub convert_ascii_insensitive_string {
 
     my @spans = map {
       Grammar::Formal::CharClass
-        ->from_numbers_pos($pattern->position, ord(lc), ord(uc))
-    } split//, $pattern->value;
+        ->from_numbers_pos(
+          _pattern_position($pattern), ord(lc), ord(uc))
+    } split//, _pattern_value($pattern);
 
-    my $group = Grammar::Formal::Empty->new;
+    my $group = ["empty", {}, []];
 
     while (@spans) {
-      $group = Grammar::Formal::Group->new(
-        position => $pattern->position,
-        p1 => pop(@spans),
-        p2 => $group);
+      $group = ["group", {
+        position => _pattern_position($pattern)
+      }, [ pop(@spans), $group ] ];
     }
 
     return _add_to_automaton($group, $fa, $root);
@@ -1124,45 +969,26 @@ sub convert_case_sensitive_string {
 
     my @spans = map {
       Grammar::Formal::CharClass
-        ->from_numbers_pos($pattern->position, ord)
-    } split//, $pattern->value;
+        ->from_numbers_pos(_pattern_position($pattern), ord)
+    } split//, _pattern_value($pattern);
     
-    my $group = Grammar::Formal::Empty->new;
+    my $group = ["empty", {}, []];
 
     while (@spans) {
-      $group = Grammar::Formal::Group->new(
-        p1 => pop(@spans),
-        p2 => $group
-      );
+      $group = ["group", {
+        position => _pattern_position($pattern)
+      }, [ pop(@spans), $group ] ];
     }
 
     return _add_to_automaton($group, $fa, $root);
   }
 
-sub convert_grammar {
+sub convert_grammar_root {
     my ($pattern, $fa, $root) = @_;
-    
+
     my %map = map {
-      $_ => [ _add_to_automaton($pattern->rules->{$_}, $fa) ]
-    } keys %{ $pattern->rules };
-    
-    return unless defined $pattern->start;
-
-    my $s1 = $fa->fa_add_state;
-    my $s2 = $fa->fa_add_state;
-    my ($ps, $pf) = @{ $map{ $pattern->start } };
-    $fa->g->add_edge($s1, $ps);
-    $fa->g->add_edge($pf, $s2);
-
-    return ($s1, $s2);
-  }
-
-sub convert_grammar_formal {
-    my ($pattern, $fa, $root) = @_;
-    
-    my %map = map {
-      $_ => [ _add_to_automaton($pattern->rules->{$_}, $fa) ]
-    } keys %{ $pattern->rules };
+      $_ => [ _add_to_automaton(_pattern_rules($pattern)->{$_}, $fa) ]
+    } keys %{ _pattern_rules($pattern) };
     
     # root, so we do not return src and dst
     return;
@@ -1173,32 +999,27 @@ sub convert_rule {
     my $s1 = $fa->fa_add_state;
     my $s2 = $fa->fa_add_state;
 
-    my $table = $fa->symbol_table;
-
     # FIXME(bh): error if already defined?
 
-    $table->{$pattern} //= {};
-    $table->{$pattern}{start_vertex} = $s1;
-    $table->{$pattern}{final_vertex} = $s2;
-    $table->{$pattern}{shortname} = $pattern->name;
+    my $name = _pattern_name($pattern);
 
-    my $r1 = Grammar::Graph::Start->new(
-      name => $pattern->name,
-      partner => $s2,
-      position => $pattern->position
-    );
+    $fa->symbol_table->{ $name } //= {};
+    $fa->symbol_table->{ $name }{start_vertex} = $s1;
+    $fa->symbol_table->{ $name }{final_vertex} = $s2;
+    $fa->symbol_table->{ $name }{shortname} = _pattern_name($pattern);
 
-    my $r2 = Grammar::Graph::Final->new(
-      name => $pattern->name,
-      partner => $s1,
-      position => $pattern->position
-    );
+    $fa->vp_type($s1, 'Start');
+    $fa->vp_name($s1, $name);
+    $fa->vp_partner($s1, $s2);
+    $fa->vp_position($s1, _pattern_position($pattern));
 
-    $fa->set_vertex_label($s1, $r1);
-    $fa->set_vertex_label($s2, $r2);
-    
+    $fa->vp_type($s2, 'Final');
+    $fa->vp_name($s2, $name);
+    $fa->vp_partner($s2, $s1);
+    $fa->vp_position($s2, _pattern_position($pattern));
+
     my ($ps, $pf) = _add_to_automaton(
-      $pattern->p, $fa, [$pattern, $s1, $s2]);
+      _pattern_p($pattern), $fa, [$pattern, $s1, $s2]);
       
     $fa->g->add_edge($s1, $ps);
     $fa->g->add_edge($pf, $s2);
@@ -1208,12 +1029,24 @@ sub convert_rule {
 
 sub convert_bounded_repetition {
     my ($pattern, $fa, $root) = @_;
-    return _bound_repetition($pattern->min, $pattern->max, $pattern->p, $fa, $root);
+    return _bound_repetition(
+      _pattern_min($pattern),
+      _pattern_max($pattern),
+      _pattern_p($pattern),
+      $fa,
+      $root
+    );
   }
 
 sub convert_some_or_more {
     my ($pattern, $fa, $root) = @_;
-    return _bound_repetition($pattern->min, undef, $pattern->p, $fa, $root);
+    return _bound_repetition(
+      _pattern_min($pattern),
+      undef,
+      _pattern_p($pattern),
+      $fa,
+      $root
+    );
   }
 
 sub convert_one_or_more {
@@ -1253,9 +1086,9 @@ sub convert_empty {
     my ($pattern, $fa, $root) = @_;
     my $s1 = $fa->fa_add_state;
     my $s3 = $fa->fa_add_state;
-    my $s2 = $fa->fa_add_state;
-    $fa->g->add_edge($s1, $s2);
-    $fa->g->add_edge($s2, $s3);
+#    my $s2 = $fa->fa_add_state;
+    $fa->g->add_edge($s1, $s3);
+#    $fa->g->add_edge($s2, $s3);
     return ($s1, $s3);
   }
 
@@ -1263,12 +1096,26 @@ sub convert_choice {
     my ($pattern, $fa, $root) = @_;
     my $s1 = $fa->fa_add_state;
     my $s2 = $fa->fa_add_state;
-    my ($p1s, $p1f) = _add_to_automaton($pattern->p1, $fa, $root);
-    my ($p2s, $p2f) = _add_to_automaton($pattern->p2, $fa, $root);
-    $fa->g->add_edge($s1, $p1s);
-    $fa->g->add_edge($s1, $p2s);
-    $fa->g->add_edge($p1f, $s2);
-    $fa->g->add_edge($p2f, $s2);
+
+    my @options;
+    my @todo = ( $pattern );
+
+    while (my $current = shift @todo) {
+      if ($current->[0] eq 'choice') {
+        push @todo, 
+          _pattern_p1($current),
+          _pattern_p2($current);
+      } else {
+        push @options, $current;
+      }
+    }
+
+    while (my $current = shift @options) {
+      my ($p1s, $p1f) = _add_to_automaton($current, $fa, $root);
+      $fa->g->add_edge($s1, $p1s);
+      $fa->g->add_edge($p1f, $s2);
+    }
+
     return ($s1, $s2);
   }
 
@@ -1276,8 +1123,8 @@ sub convert_group {
     my ($pattern, $fa, $root) = @_;
     my $s1 = $fa->fa_add_state;
     my $s2 = $fa->fa_add_state;
-    my ($p1s, $p1f) = _add_to_automaton($pattern->p1, $fa, $root);
-    my ($p2s, $p2f) = _add_to_automaton($pattern->p2, $fa, $root);
+    my ($p1s, $p1f) = _add_to_automaton(_pattern_p1($pattern), $fa, $root);
+    my ($p2s, $p2f) = _add_to_automaton(_pattern_p2($pattern), $fa, $root);
     $fa->g->add_edge($p1f, $p2s);
     $fa->g->add_edge($s1, $p1s);
     $fa->g->add_edge($p2f, $s2);
@@ -1317,41 +1164,37 @@ sub _convert_binary_operation {
     my $p1_fi = $fa->fa_add_state();
     my $p2_fi = $fa->fa_add_state();
 
-    my $if_p1_label = Grammar::Graph::If1->new(
-      position => $pattern->position, partner => $p1_fi);
-    my $if_p2_label = Grammar::Graph::If2->new(
-      position => $pattern->position, partner => $p2_fi);
-    my $p1_fi_label = Grammar::Graph::Fi1->new(
-      position => $pattern->position, partner => $if_p1);
-    my $p2_fi_label = Grammar::Graph::Fi2->new(
-      position => $pattern->position, partner => $if_p2);
+    $fa->vp_type($if_p1, 'If1');
+    $fa->vp_type($if_p2, 'If2');
+    $fa->vp_type($p1_fi, 'Fi1');
+    $fa->vp_type($p2_fi, 'Fi2');
 
-    $fa->set_vertex_label($if_p1, $if_p1_label);
-    $fa->set_vertex_label($if_p2, $if_p2_label);
-    $fa->set_vertex_label($p1_fi, $p1_fi_label);
-    $fa->set_vertex_label($p2_fi, $p2_fi_label);
+    $fa->vp_partner($if_p1, $p1_fi);
+    $fa->vp_partner($if_p2, $p2_fi);
+    $fa->vp_partner($p1_fi, $if_p1);
+    $fa->vp_partner($p2_fi, $if_p2);
 
-    my ($p1s, $p1f) = _add_to_automaton($pattern->p1, $fa, $root);
-    my ($p2s, $p2f) = _add_to_automaton($pattern->p2, $fa, $root);
+    $fa->vp_position($if_p1, _pattern_position($pattern));
+    $fa->vp_position($if_p2, _pattern_position($pattern));
+    $fa->vp_position($p1_fi, _pattern_position($pattern));
+    $fa->vp_position($p2_fi, _pattern_position($pattern));
 
-    my $if_label = Grammar::Graph::If->new(
-      position => $pattern->position,
-      partner => $fi,
-      p1 => $if_p1,
-      p2 => $if_p2,
-      name => $op
-    );
+    my ($p1s, $p1f) = _add_to_automaton(_pattern_p1($pattern), $fa, $root);
+    my ($p2s, $p2f) = _add_to_automaton(_pattern_p2($pattern), $fa, $root);
 
-    my $fi_label = Grammar::Graph::Fi->new(
-      position => $pattern->position,
-      partner => $if,
-      p1 => $p1_fi,
-      p2 => $p2_fi,
-      name => $op
-    );
+    $fa->vp_position($if, _pattern_position($pattern));
+    $fa->vp_partner($if, $fi);
+    $fa->vp_p1($if, $if_p1);
+    $fa->vp_p2($if, $if_p2);
+    $fa->vp_name($if, $op);
+    $fa->vp_type($if, 'If');
 
-    $fa->set_vertex_label($if, $if_label);
-    $fa->set_vertex_label($fi, $fi_label);
+    $fa->vp_position($fi, _pattern_position($pattern));
+    $fa->vp_partner($fi, $if);
+    $fa->vp_p1($fi, $p1_fi);
+    $fa->vp_p2($fi, $p2_fi);
+    $fa->vp_name($fi, $op);
+    $fa->vp_type($fi, 'Fi');
 
     $fa->g->add_edge($if_p1, $p1s);
     $fa->g->add_edge($if_p2, $p2s);
@@ -1376,10 +1219,24 @@ sub convert_subtraction {
 
 sub _add_to_automaton {
   my ($pattern, $self, $root) = @_;
-  my $converter = $self->find_converter(ref $pattern);
+#  die $pattern unless ref $pattern eq 'ARRAY';
+
+
+  my $converter = $self->find_converter(ref $pattern)
+    // $self->find_converter($pattern->[0]);
   if ($converter) {
     return $converter->($pattern, $self, $root);
   }
+
+  use Data::Dumper;
+  use JSON;
+  warn Dumper $root;
+  warn JSON->new->pretty(1)->encode($root);
+  
+  die "no converter for " . $pattern->[0];
+
+  ...;
+
   my $s1 = $self->fa_add_state;
   my $s2 = $self->fa_add_state(p => $pattern);
   my $s3 = $self->fa_add_state;

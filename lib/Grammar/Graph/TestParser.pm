@@ -265,18 +265,18 @@ local $Storable::canonical = 1;
 sub from_abnf_file {
   my ($class, $path, $shortname) = @_;
 
-  my $formal = Parse::ABNF->new->parse_to_grammar_formal(do {
+  my $formal = Parse::ABNF->new->parse_to_jet(do {
     local $/;
     die "There is no file $path" unless -f $path;
     open my $f, '<', $path;
     <$f> =~ s/\r\n/\n/gr;
   }, core => 1);
 
-  my $g = Grammar::Graph->from_grammar_formal($formal, $shortname);
+  my $g = Grammar::Graph->from_binary_jet($formal, $shortname);
 
   $g->fa_drop_rules_not_needed_for($shortname);
   $g->fa_merge_character_classes();
-  $g->fa_separate_character_classes();
+#  $g->fa_separate_character_classes();
 
   $g->fa_expand_references();
   $g->fa_remove_useless_epsilons($g->g->vertices);

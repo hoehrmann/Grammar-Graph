@@ -66,6 +66,60 @@ sub first_edge {
   return [ 0, $self->anon_start_id, 0, $self->prelude_id ];
 }
 
+sub stack_type {
+  my ($self, $v) = @_;
+  return "push" if $self->is_push_vertex($v);
+  return "pop" if $self->is_pop_vertex($v);
+  return "none";
+}
+
+sub spans {
+  my ($self, $v) = @_;
+
+  my @result;
+  my $six = $self->{vertices}->[$v]->{spans};
+
+  for (my $ix = $six; 1; $ix += 2) {
+    my $lo = $self->{spans}->[$ix];
+    my $hi = $self->{spans}->[$ix+1];
+    last if $lo eq $hi;
+    push @result, [ $lo, $hi - 1 ];
+  }
+
+  return @result;
+}
+
+sub all_int_spans {
+  my ($self) = @_;
+
+  my @spans = ([]);
+
+  my %spans_offset_to_list_index;
+
+  for (my $ix = 0; $ix < @{ $self->{spans} }; $ix += 2) {
+    my $min_inclusive = $self->{spans}[$ix];
+    my $max_exclusive = $self->{spans}[$ix+1];
+
+#    next if $min_inclusive  < 0;
+
+    if ($min_inclusive == $max_exclusive) {
+      push @spans, [];
+      $spans_offset_to_list_index{ $ix + 2 } = $#spans;
+      next;
+    }
+
+    push @{ $spans[-1] }, [ $min_inclusive, $max_exclusive - 1 ];
+  }
+
+  pop @spans;
+
+  my @int_spans = map {
+    Set::IntSpan->new(@$_);
+  } @spans;
+
+  return @int_spans;
+}
+
 1;
 
 __END__

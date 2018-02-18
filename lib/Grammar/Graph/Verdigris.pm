@@ -41,10 +41,10 @@ sub _handle_ifX_fiX {
     # $if1 has edge to $fi1:   0000111100001111
     # $if2 has successors:     0011001100110011
     # $if2 has edge to $fi2:   0101010101010101
-    '#conjunction'         => '___d_______wd_wb',
-    '#ordered_conjunction' => '___d_______wd_w1',
+    '#conjunction'         => '___0_______w0_w3',
+    '#ordered_conjunction' => '___0_______w0_w1',
     '#ordered_choice'      => '___2_______w1_11',
-    '#exclusion'           => '___d_______d1_wd',
+    '#exclusion'           => '___0_______01_w0',
   );
   
   my ($if, $if1, $if2, $fi, $fi1, $fi2) =
@@ -79,7 +79,7 @@ sub _handle_ifX_fiX {
   $pg->delete_edge($if2, $fi2);
   $pg->delete_edge($if1, $fi1);
 
-  if ($action eq 'd') {
+  if ($action eq '0') {
     # Take neither
     return;
 
@@ -91,7 +91,7 @@ sub _handle_ifX_fiX {
     # Take second
     return _contract_path($m, $pg, $if, $if2, $label2, $fi2, $fi);
 
-  } elsif ($action eq 'b') {
+  } elsif ($action eq '3') {
     # Take both
     return
       _contract_path($m, $pg, $if, $if2, $label2, $fi2, $fi),
