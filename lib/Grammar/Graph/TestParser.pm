@@ -265,7 +265,7 @@ local $Storable::canonical = 1;
 sub from_abnf_file {
   my ($class, $path, $shortname) = @_;
 
-  my $formal = Parse::ABNF->new->parse_to_jet(do {
+  my $formal = Parse::ABNF->new->parse_to_binary_jet(do {
     local $/;
     die "There is no file $path" unless -f $path;
     open my $f, '<', $path;
