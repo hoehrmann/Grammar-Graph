@@ -166,33 +166,6 @@ sub fa_add_state {
   return $id;
 }
 
-sub fa_all_e_reachable {
-  my ($self, $v) = @_;
-  my %seen;
-  my @todo = ($v);
-  while (@todo) {
-    my $c = pop @todo;
-    next if $self->is_terminal_vertex($c);
-    push @todo, grep { not $seen{$_}++ } $self->g->successors($c);
-  }
-  keys %seen;
-}
-
-sub all_reachable {
-  my ($g, $source, $cond) = @_;
-  $cond //= sub { 1 };
-  my %seen;
-  my @todo = ($source);
-  my %ok;
-  while (defined(my $v = pop @todo)) {
-    $ok{$_}++ for $g->successors($v);
-    push @todo, grep {
-      $cond->($_) and not $seen{$_}++
-    } $g->successors($v);
-  }
-  keys %ok;
-};
-
 #####################################################################
 # Helper function to clone label when cloning subgraph
 #####################################################################
@@ -203,6 +176,7 @@ sub _clone_label_to {
 
     my $value = $self->g->get_vertex_attribute($k, $att);
 
+    # Copy first, override later
     $self->g->set_vertex_attribute($to, $att, $value);
 
     next unless $att =~ /^(p1|p2|partner)$/;
@@ -354,6 +328,7 @@ sub fa_expand_references {
     $self->g->delete_vertex($v);
   }
 
+  # FIXME: replace with SQL
   for my $v ($self->g->vertices) {
     die if $self->vertex_isa_reference($v);
   }
@@ -576,7 +551,7 @@ sub vertex_isa {
   return (($type // '') eq $pkg);
 }
 
-sub vertex_isa_reference { vertex_isa(@_, 'Grammar::Formal::Reference') };
+sub vertex_isa_reference { vertex_isa(@_, 'Reference') };
 sub vertex_isa_charclass { vertex_isa(@_, 'Grammar::Formal::CharClass') };
 
 sub vertex_isa_prelude { vertex_isa(@_, 'Prelude') };
@@ -623,105 +598,6 @@ sub vp_position { _vp_property('position', @_) }
 #####################################################################
 # Constructor
 #####################################################################
-sub _graph_copy_graph_without_terminal_out_edges {
-  my ($self) = @_;
-
-  my $tmp = $self->g->copy;
-
-  for my $v ($tmp->vertices) {
-    next unless $self->is_terminal_vertex($v);
-    for my $s ($tmp->successors($v)) {
-      $tmp->delete_edge($v, $s);
-    }
-  }
-
-  return $tmp
-}
-
-sub _toposort {
-  my ($self) = @_;
-
-  my @filters = (
-    sub { 0 },
-    sub { $self->is_terminal_vertex($_) },
-#    sub { $self->is_pop_vertex($_) },
-  );
-
-  my %topological_id;
-
-  for (my $filter_id = 0; $filter_id < @filters; ++$filter_id) {
-
-    my $g = Graph::Directed->new;
-
-    for my $v ( $self->g->vertices ) {
-      local $_ = $v;
-      next if $filters[$filter_id]->($_);
-      $g->add_edge( $v, $_ ) for $self->g->successors( $v );
-    }
-
-    my $scg = $g->strongly_connected_graph;
-
-    for (my $ix = 0; $scg->vertices; ++$ix) {
-      my @here = $scg->successorless_vertices;
-      $topological_id{$_}[$filter_id] = $ix
-        for map { split/\+/ } @here;
-      $scg->delete_vertices(@here);
-    }
-
-  }
-
-  my %p = partition_by {
-    pack 'N3', map { $_ // 0 } @{ $topological_id{$_} }, 0, 0, 0
-  } keys %topological_id;
-
-  return map { join '+', @{ $p{$_} } } reverse sort keys %p;
-}
-
-sub _create_vertex_to_topological {
-  my ($self) = @_;
-  my %result;
-
-  my $ix = 1;
-  for my $scc ($self->_toposort) {
-    $result{$_} = $ix for split/\+/, $scc;
-    $ix++;
-  }
-
-  return %result;
-}
-
-sub _create_vertex_to_topological_old {
-  my ($self) = @_;
-
-  my $tmp = _graph_copy_graph_without_terminal_out_edges($self);
-
-  my %result;
-
-  my $ix = 1;
-  for my $scc ($tmp->strongly_connected_graph->toposort) {
-    # TODO: use get_graph_attribute subvertices instead of split
-    $result{$_} = $ix for split/\+/, $scc;
-    $ix++;
-  }
-
-  return %result;
-}
-
-sub _create_vertex_to_scc {
-  my ($self) = @_;
-
-  my $tmp = _graph_copy_graph_without_terminal_out_edges($self);
-
-  my %result;
-
-  for my $scc ($tmp->strongly_connected_graph->toposort) {
-    # TODO: use get_graph_attribute subvertices instead of split
-    next unless $tmp->has_edge($scc, $scc) or $scc =~ /\+/;
-    $result{$_} = $scc for split/\+/, $scc;
-  }
-
-  return %result;
-}
 
 #####################################################################
 # ...
@@ -847,7 +723,19 @@ sub _bound_repetition {
 # Helper functions
 #####################################################################
 
-sub _pattern_p1       { my ($pattern) = @_; my $result = eval { $pattern->[2]->[0] }; return $result unless $@; use Data::Dumper; die Dumper $pattern;  }
+sub _pattern_p1 {
+  my ($pattern) = @_;
+
+  my $result = eval {
+    $pattern->[2]->[0]
+  };
+
+  return $result unless $@;
+
+  use Data::Dumper;
+  die Dumper $pattern;
+}
+
 sub _pattern_p2       { my ($pattern) = @_; $pattern->[2]->[1] }
 sub _pattern_p        { my ($pattern) = @_; $pattern->[2]->[0] }
 sub _pattern_min      { my ($pattern) = @_; $pattern->[1]->{min} }
@@ -858,6 +746,7 @@ sub _pattern_last      { my ($pattern) = @_; $pattern->[1]->{last} }
 
 sub _pattern_name     { my ($pattern) = @_; $pattern->[1]->{name} }
 sub _pattern_position { my ($pattern) = @_; $pattern->[1]->{position} }
+
 sub _pattern_rules    { my ($pattern) = @_;
   return {
     map { $_->[1]->{name}, $_ }
@@ -907,7 +796,7 @@ sub convert_reference {
     my $s2 = $fa->fa_add_state();
 
     # FIXME !!!!!!!!!!!!!!!!!!
-    $fa->vp_type($s2, 'Grammar::Formal::Reference');
+    $fa->vp_type($s2, 'Reference');
     $fa->vp_name($s2, _pattern_name($pattern));
 
     my $s3 = $fa->fa_add_state;
@@ -1055,6 +944,7 @@ sub convert_one_or_more {
     my $s2 = $fa->add_state;
     my $s3 = $fa->add_state;
     my $s4 = $fa->add_state;
+    ...;
     my ($ps, $pf) = $self->p->add_to_automaton($fa, $root);
     $fa->add_e_transition($s1, $s2);
     $fa->add_e_transition($s2, $ps);
@@ -1071,6 +961,7 @@ sub convert_zero_or_more {
     my $s2 = $fa->add_state;
     my $s3 = $fa->add_state;
     my $s4 = $fa->add_state;
+    ...;
     my ($ps, $pf) = $self->p->add_to_automaton($fa, $root);
     $fa->add_e_transition($s1, $s2);
     $fa->add_e_transition($s2, $ps);
@@ -1282,13 +1173,6 @@ Adds a new vertex to the graph and optionally labeles it with the
 supplied label. The vertex should be assumed to be a random integer.
 Care should be taken when adding vertices to the graph through other
 means to avoid clashes.
-
-=item C<fa_all_e_reachable($v)>
-
-Returns the successors of $v and transitively any successors that can
-be reached without going over a vertex labeled by something other than
-C<Grammar::Formal::Empty>-derived objects. In other words, all the
-vertices that can be reached without going over an input symbol.
 
 =item C<fa_expand_references()>
 
