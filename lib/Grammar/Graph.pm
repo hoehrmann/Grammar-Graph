@@ -15,6 +15,8 @@ use Graph::Feather;
 use Moo;
 use Types::Standard qw/:all/;
 
+use Grammar::Graph::JET;
+
 # Mixins
 use Grammar::Graph::Converters;
 use Grammar::Graph::Cloning;
@@ -325,10 +327,12 @@ sub fa_truncate {
 #####################################################################
 sub from_jet {
   my ($class, $formal, $shortname, %options) = @_;
-  my $cloned = Storable::dclone $formal;
-  require Parse::ABNF;
-  # FIXME(bh): it is evil to call private methods
-  Parse::ABNF::_make_jet_binary($cloned);
+
+  my $cloned = Grammar::Graph::JET
+    ->from_tree($formal)
+    ->make_binary()
+    ->to_tree();
+
   return from_binary_jet($class, $cloned, $shortname, %options);
 }
 

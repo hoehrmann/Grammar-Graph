@@ -259,18 +259,26 @@ use JSON;
 use Encode;
 use Graph::Traversal::BFS;
 use autodie;
+use Grammar::Graph::JET;
 
 local $Storable::canonical = 1;
 
 sub from_abnf_file {
   my ($class, $path, $shortname) = @_;
 
-  my $formal = Parse::ABNF->new->parse_to_binary_jet(do {
+  my $formal = Parse::ABNF->new->parse_to_jet(do {
     local $/;
     die "There is no file $path" unless -f $path;
     open my $f, '<', $path;
     <$f> =~ s/\r\n/\n/gr;
   }, core => 1);
+
+  ...;
+
+  $formal = Grammar::Graph::JET
+    ->from_tree($formal)
+    ->make_binary
+    ->to_tree;
 
   my $g = Grammar::Graph->from_binary_jet($formal, $shortname);
 
