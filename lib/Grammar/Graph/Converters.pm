@@ -116,22 +116,6 @@ sub _pattern_value    { my ($pattern) = @_;
 #####################################################################
 # Collection of sub routines that write patterns to the graph
 #####################################################################
-sub convert_char_class {
-    my ($pattern, $fa, $root) = @_;
-    my $s1 = $fa->fa_add_state;
-    my $s2 = $fa->fa_add_state();
-
-    $fa->vp_type($s2, ref $pattern);
-    $fa->vp_char_obj($s2, $pattern);
-
-    my $s3 = $fa->fa_add_state;
-    $fa->g->add_edges(
-      [ $s1, $s2 ],
-      [ $s2, $s3 ],
-    );
-    return ($s1, $s3);
-  }
-
 sub convert_prose_value {
     ...;
 
@@ -174,20 +158,26 @@ sub convert_not_allowed {
   }
 
 sub convert_range {
-    my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $root) = @_;
 
-    my $spans = Set::IntSpan->new([[
-      _pattern_first($pattern),
-      _pattern_last($pattern),
-    ]]);
+  my $spans = Set::IntSpan->new([[
+    _pattern_first($pattern),
+    _pattern_last($pattern),
+  ]]);
 
-    my $char_class = Grammar::Formal::CharClass->new(
-      position => _pattern_position($pattern),
-      spans => $spans,
-    );
+  my $s1 = $fa->fa_add_state;
+  my $s2 = $fa->fa_add_state();
 
-    return _add_to_automaton($char_class, $fa, $root);
-  }
+  $fa->vp_type($s2, 'xxxrunlist');
+  $fa->vp_run_list($s2, $spans->run_list);
+
+  my $s3 = $fa->fa_add_state;
+  $fa->g->add_edges(
+    [ $s1, $s2 ],
+    [ $s2, $s3 ],
+  );
+  return ($s1, $s3);
+}
 
 sub convert_ascii_insensitive_string {
     my ($pattern, $fa, $root) = @_;
@@ -195,9 +185,9 @@ sub convert_ascii_insensitive_string {
     use bytes;
 
     my @spans = map {
-      Grammar::Formal::CharClass
-        ->from_numbers_pos(
-          _pattern_position($pattern), ord(lc), ord(uc))
+      ["choice", {}, [
+        ["range", { first => ord(lc), last => ord(lc) }, []],
+        ["range", { first => ord(uc), last => ord(uc) }, []]]]
     } split//, _pattern_value($pattern);
 
     my $group = ["empty", {}, []];
@@ -212,23 +202,22 @@ sub convert_ascii_insensitive_string {
   }
 
 sub convert_case_sensitive_string {
-    my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $root) = @_;
 
-    my @spans = map {
-      Grammar::Formal::CharClass
-        ->from_numbers_pos(_pattern_position($pattern), ord)
-    } split//, _pattern_value($pattern);
-    
-    my $group = ["empty", {}, []];
+  my @spans = map {
+    ["range", { first => ord(), last => ord() }, []]
+  } split//, _pattern_value($pattern);
+  
+  my $group = ["empty", {}, []];
 
-    while (@spans) {
-      $group = ["group", {
-        position => _pattern_position($pattern)
-      }, [ pop(@spans), $group ] ];
-    }
-
-    return _add_to_automaton($group, $fa, $root);
+  while (@spans) {
+    $group = ["group", {
+      position => _pattern_position($pattern)
+    }, [ pop(@spans), $group ] ];
   }
+
+  return _add_to_automaton($group, $fa, $root);
+}
 
 sub convert_grammar_root {
   my ($pattern, $fa, $root) = @_;

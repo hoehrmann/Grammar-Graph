@@ -84,7 +84,7 @@ has 'pattern_converters' => (
   isa      => HashRef[CodeRef],
   default  => sub { {
 #    'Grammar::Formal::NotAllowed' => \&convert_not_allowed,
-    'Grammar::Formal::CharClass' => \&convert_char_class,
+#    'Grammar::Formal::CharClass' => \&convert_char_class,
 
     'ref'                    => \&convert_reference,
     'range'                  => \&convert_range,
@@ -227,10 +227,11 @@ sub fa_remove_useless_epsilons {
 sub get_vertex_char_object {
   my ($self, $v) = @_;
   return unless $self->vertex_isa_charclass($v);
-  my $label = $self->g->get_vertex_attribute($v, 'char_obj');
+  my $label = $self->vp_run_list($v);
   die unless defined $label;
-  die unless ref $label eq 'Grammar::Formal::CharClass';
-  return $label;
+  die if ref $label;
+
+  return Set::IntSpan->new($label);
 }
 
 sub vertex_isa {
@@ -242,7 +243,7 @@ sub vertex_isa {
 }
 
 sub vertex_isa_reference { vertex_isa(@_, 'Reference') };
-sub vertex_isa_charclass { vertex_isa(@_, 'Grammar::Formal::CharClass') };
+sub vertex_isa_charclass { vertex_isa(@_, 'xxxrunlist') };
 
 sub vertex_isa_prelude { vertex_isa(@_, 'Prelude') };
 sub vertex_isa_postlude { vertex_isa(@_, 'Postlude') };
@@ -282,7 +283,7 @@ sub vp_p1 { _vp_property('p1', @_) }
 sub vp_p2 { _vp_property('p2', @_) }
 sub vp_name { _vp_property('name', @_) }
 sub vp_type { _vp_property('type', @_) }
-sub vp_char_obj { _vp_property('char_obj', @_) }
+sub vp_run_list { _vp_property('run_list', @_) }
 sub vp_position { _vp_property('position', @_) }
 
 #####################################################################

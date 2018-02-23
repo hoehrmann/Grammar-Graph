@@ -273,12 +273,10 @@ sub from_abnf_file {
     <$f> =~ s/\r\n/\n/gr;
   }, core => 1);
 
-  ...;
-
   $formal = Grammar::Graph::JET
     ->from_tree($formal)
-    ->make_binary
-    ->to_tree;
+    ->make_binary()
+    ->to_tree();
 
   my $g = Grammar::Graph->from_binary_jet($formal, $shortname);
 

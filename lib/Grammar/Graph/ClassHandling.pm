@@ -33,24 +33,19 @@ sub fa_merge_character_classes {
   while (my ($k, $v) = each %groups) {
     next unless @$v > 1;
     my $union = Set::IntSpan->new;
-    my $min_pos;
 
     for my $vertex (@$v) {
       my $char_obj = $self->get_vertex_char_object($vertex);
-      $union->U($char_obj->spans);
-      $min_pos //= $char_obj->position;
-      $min_pos = $char_obj->position if defined $char_obj->position
-        and $char_obj->position < $min_pos;
+      $union->U($char_obj);
     }
 
     my $class = Grammar::Formal::CharClass->new(
       spans => $union,
-      position => $min_pos
     );
 
     my $state = $self->fa_add_state();
     $self->vp_type($state, ref $class);
-    $self->vp_char_obj($state, $class);
+    $self->vp_run_list($state, $class->spans->run_list);
 
     $self->_copy_predecessors($v->[0], $state);
     $self->_copy_successors($v->[0], $state);
@@ -72,7 +67,7 @@ sub fa_separate_character_classes {
   } $self->g->vertices;
 
   my @classes = map {
-    $self->get_vertex_char_object($_)->spans;
+    $self->get_vertex_char_object($_);
   } @vertices;
   
   my %map = Set::IntSpan::Partition::intspan_partition_map(@classes);
@@ -83,13 +78,12 @@ sub fa_separate_character_classes {
       my $char_obj = $self->get_vertex_char_object($vertices[$ix]);
 
       my $class = Grammar::Formal::CharClass->new(spans => $_,
-          position => $char_obj->position);
+          );
 
       my $state = $self->fa_add_state();
 
       $self->vp_type($state, ref $class);
-      $self->vp_char_obj($state, $class);
-      $self->vp_position($state, $char_obj->position);
+      $self->vp_run_list($state, $class->spans->run_list);
 
       $self->_copy_predecessors($vertices[$ix], $state);
       $self->_copy_successors($vertices[$ix], $state);
