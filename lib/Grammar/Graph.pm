@@ -243,7 +243,7 @@ sub vertex_isa {
 }
 
 sub vertex_isa_reference { vertex_isa(@_, 'Reference') };
-sub vertex_isa_charclass { vertex_isa(@_, 'xxxrunlist') };
+sub vertex_isa_charclass { vertex_isa(@_, 'Grammar::Formal::CharClass') };
 
 sub vertex_isa_prelude { vertex_isa(@_, 'Prelude') };
 sub vertex_isa_postlude { vertex_isa(@_, 'Postlude') };

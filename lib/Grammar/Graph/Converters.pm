@@ -168,7 +168,7 @@ sub convert_range {
   my $s1 = $fa->fa_add_state;
   my $s2 = $fa->fa_add_state();
 
-  $fa->vp_type($s2, 'xxxrunlist');
+  $fa->vp_type($s2, 'Grammar::Formal::CharClass');
   $fa->vp_run_list($s2, $spans->run_list);
 
   my $s3 = $fa->fa_add_state;
@@ -202,22 +202,22 @@ sub convert_ascii_insensitive_string {
   }
 
 sub convert_case_sensitive_string {
-  my ($pattern, $fa, $root) = @_;
+    my ($pattern, $fa, $root) = @_;
 
-  my @spans = map {
-    ["range", { first => ord(), last => ord() }, []]
-  } split//, _pattern_value($pattern);
-  
-  my $group = ["empty", {}, []];
+    my @spans = map {
+      ["range", { first => ord(), last => ord() }, []]
+    } split//, _pattern_value($pattern);
 
-  while (@spans) {
-    $group = ["group", {
-      position => _pattern_position($pattern)
-    }, [ pop(@spans), $group ] ];
+    my $group = ["empty", {}, []];
+
+    while (@spans) {
+      $group = ["group", {
+        position => _pattern_position($pattern)
+      }, [ pop(@spans), $group ] ];
+    }
+
+    return _add_to_automaton($group, $fa, $root);
   }
-
-  return _add_to_automaton($group, $fa, $root);
-}
 
 sub convert_grammar_root {
   my ($pattern, $fa, $root) = @_;
