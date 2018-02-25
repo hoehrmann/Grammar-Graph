@@ -44,7 +44,7 @@ sub fa_merge_character_classes {
     );
 
     my $state = $self->fa_add_state();
-    $self->vp_type($state, 'Grammar::Formal::CharClass');
+    $self->vp_type($state, 'charClass');
     $self->vp_run_list($state, $class->spans->run_list);
 
     $self->_copy_predecessors($v->[0], $state);
@@ -82,7 +82,7 @@ sub fa_separate_character_classes {
 
       my $state = $self->fa_add_state();
 
-      $self->vp_type($state, 'Grammar::Formal::CharClass');
+      $self->vp_type($state, 'charClass');
       $self->vp_run_list($state, $class->spans->run_list);
 
       $self->_copy_predecessors($vertices[$ix], $state);

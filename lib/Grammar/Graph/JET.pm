@@ -7,12 +7,8 @@ use Storable qw/dclone/;
 
 our %arity = (
   'grammar'                => [ undef, undef ],
-  'rule'                   => [ 1, 'group' ],
+
   'repetition'             => [ 1, 'group' ],
-  'group'                  => [ 2, 'group' ],
-  'exclusion'              => [ 2, 'group' ],
-  'repetition'             => [ 2, 'group' ],
-  'rule'                   => [ 2, 'group' ],
 
   'optional'               => [ 1, 'group' ],
   'greedyOptional'         => [ 1, 'group' ],
@@ -26,8 +22,11 @@ our %arity = (
   'greedyOneOrMore'        => [ 1, 'group' ],
   'lazyOneOrMore'          => [ 1, 'group' ],
 
-  'empty'                  => [ 0, undef ],
+  'group'                  => [ 2, 'group' ],
 
+  'rule'                   => [ 1, 'group' ],
+
+  'exclusion'              => [ 2, 'group' ],
   'choice'                 => [ 2, 'choice' ],
   'conjunction'            => [ 2, 'conjunction' ],
   'orderedChoice'          => [ 2, 'orderedChoice' ],
@@ -36,6 +35,7 @@ our %arity = (
   'range'                  => [ 0, undef ],
   'asciiInsensitiveString' => [ 0, undef ],
   'string'                 => [ 0, undef ],
+  'empty'                  => [ 0, undef ],
 );
 
 sub from_json_string {
@@ -105,6 +105,44 @@ sub _make_jet_binary {
   }
 
   return $node;
+}
+
+sub to_json_string {
+  my ($self) = @_;
+  return _to_json_tree($self->{_});
+}
+
+sub _to_json_tree {
+  my ($node) = @_;
+
+  my $result = _to_json_tree_step($node, 0);
+
+  $result =~ s/^(\s*\["rule")/\n$1/mg;
+  $result =~ s/,\s*$//;
+
+  return $result;
+}
+
+sub _to_json_tree_step {
+  my ($node, $depth) = @_;
+
+  my ($name, $args, $children) = @$node;
+
+  return '' unless @$node;
+
+  # TODO: JSON encode $name
+
+  my $result = sprintf qq{\n%*s["%s", %s, [},
+    $depth*2, '', ($name // ''),
+    JSON->new->space_after(1)->canonical(1)->encode($args);
+
+  $result .= _to_json_tree_step($_, $depth+1) for @$children;
+
+  $result .= sprintf qq{]],};
+
+  $result =~ s/,\]/]/sg;
+
+  return $result;
 }
 
 1;

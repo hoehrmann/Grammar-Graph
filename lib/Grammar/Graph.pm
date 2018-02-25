@@ -243,7 +243,7 @@ sub vertex_isa {
 }
 
 sub vertex_isa_reference { vertex_isa(@_, 'Reference') };
-sub vertex_isa_charclass { vertex_isa(@_, 'Grammar::Formal::CharClass') };
+sub vertex_isa_charclass { vertex_isa(@_, 'charClass') };
 
 sub vertex_isa_prelude { vertex_isa(@_, 'Prelude') };
 sub vertex_isa_postlude { vertex_isa(@_, 'Postlude') };
@@ -341,21 +341,73 @@ sub from_binary_jet {
   my ($class, $formal, $shortname, %options) = @_;
   my $self = $class->new(root_name => $shortname);
 
-  _add_to_automaton($formal, $self);
+  _add_to_automaton(undef, $formal, $self);
   fa_remove_useless_epsilons($self, $self->g->vertices);
 
   return $self;
 }
 
 sub _add_to_automaton {
-  my ($pattern, $self, $root) = @_;
+  my ($parent, $pattern, $self, $after) = @_;
 #  die $pattern unless ref $pattern eq 'ARRAY';
 
+#  warn join "\t", "parent", $parent->[0], "child", $pattern->[0];
 
   my $converter = $self->find_converter(ref $pattern)
     // $self->find_converter($pattern->[0]);
+
+#  my $parent_arity = $Grammar::Graph::JET::arity{ $parent->[0] // '' };
+#  my $pattern_arity = $Grammar::Graph::JET::arity{ $pattern->[0] };
+
+#  warn join "\t", "parent", $parent->[0], "child", $pattern->[0], "parent_arity", $parent_arity->[0] // '';
+
+  my %child_is_independent_sequence = map { $_ => 1 } (
+    'rule',
+    'choice',
+    'orderedChoice',
+    'conjunction',
+    'orderedConjunction',
+    'exclusion',
+  );
+
   if ($converter) {
-    return $converter->($pattern, $self, $root);
+    if ($child_is_independent_sequence{$parent->[0] // ''}) {
+
+      my $after = [];
+      my ($ps, $pf) = $converter->($pattern, $self, $after);
+
+      return ($ps, $pf) unless @$after;
+
+      while (@$after) {
+        my ($finalAfter, $final) = @{ pop @$after };
+        $self->g->add_edges(
+          [ $pf, $finalAfter ],
+        );
+        $pf = $final;
+      }
+
+      return ($ps, $pf);
+
+#      my $x1 = $self->fa_add_state();
+#      my $x2 = $self->fa_add_state();
+
+#      $self->vp_type($x1, 'Start');
+#      $self->vp_name($x1, "START GROUP " . $after . ' ' . $pattern->[0]);
+#      $self->vp_type($x2, 'Final');
+#      $self->vp_name($x2, "FINAL GROUP " . $after . ' ' . $pattern->[0]);
+#      $self->g->add_edges(
+#        [ $x1, $ps ],
+#        [ $pf, $x2 ],
+#      );
+#      return ($x1, $x2);
+
+    } else {
+      my ($ps, $pf) = $converter->($pattern, $self, $after);
+      my $x1 = $self->fa_add_state();
+      my $x2 = $self->fa_add_state();
+      return ($ps, $pf);
+      
+    }
   }
 
   use Data::Dumper;

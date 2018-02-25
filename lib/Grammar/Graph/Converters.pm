@@ -16,7 +16,7 @@ use Types::Standard qw/:all/;
 # Helper function to write some forms of repetition to the graph
 #####################################################################
 sub _bound_repetition {
-  my ($min, $max, $child, $fa, $root) = @_;
+  my ($parent, $min, $max, $child, $fa, $after) = @_;
 
   # FIXME: rename because it also handles unbounded repetition?
 
@@ -27,7 +27,7 @@ sub _bound_repetition {
     my $s2 = $fa->fa_add_state;
     my $s3 = $fa->fa_add_state;
     my $s4 = $fa->fa_add_state;
-    my ($ps, $pf) = _add_to_automaton($child, $fa, $root);
+    my ($ps, $pf) = _add_to_automaton($parent, $child, $fa, $after);
     $fa->g->add_edge($s1, $s2);
     $fa->g->add_edge($s2, $ps);
     $fa->g->add_edge($pf, $s3);
@@ -41,7 +41,7 @@ sub _bound_repetition {
   my $first = $s1;
   
   while ($min--) {
-    my ($src, $dst) = _add_to_automaton($child, $fa, $root);
+    my ($src, $dst) = _add_to_automaton($parent, $child, $fa, $after);
     $fa->g->add_edge($s1, $src);
     $s1 = $dst;
     $max-- if defined $max;
@@ -54,7 +54,7 @@ sub _bound_repetition {
   }  
 
   do {
-    my ($src, $dst) = _add_to_automaton($child, $fa, $root);
+    my ($src, $dst) = _add_to_automaton($parent, $child, $fa, $after);
     $fa->g->add_edge($s1, $src);
     my $sx = $fa->fa_add_state;
     $fa->g->add_edge($dst, $sx);
@@ -119,7 +119,7 @@ sub _pattern_value    { my ($pattern) = @_;
 sub convert_prose_value {
     ...;
 
-    my ($pattern, $fa, $root) = @_;
+    my ($pattern, $fa, $after) = @_;
     my $s1 = $fa->fa_add_state;
     my $s2 = $fa->fa_add_state(p => $pattern);
     my $s3 = $fa->fa_add_state;
@@ -131,7 +131,7 @@ sub convert_prose_value {
   }
 
 sub convert_reference {
-    my ($pattern, $fa, $root) = @_;
+    my ($pattern, $fa, $after) = @_;
     my $s1 = $fa->fa_add_state;
     my $s2 = $fa->fa_add_state();
 
@@ -148,7 +148,7 @@ sub convert_reference {
   }
 
 sub convert_not_allowed {
-    my ($pattern, $fa, $root) = @_;
+    my ($pattern, $fa, $after) = @_;
     my $s1 = $fa->fa_add_state;
 #    my $s2 = $fa->fa_add_state(p => $pattern);
     my $s3 = $fa->fa_add_state;
@@ -158,7 +158,7 @@ sub convert_not_allowed {
   }
 
 sub convert_range {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
 
   my $spans = Set::IntSpan->new([[
     _pattern_first($pattern),
@@ -168,7 +168,7 @@ sub convert_range {
   my $s1 = $fa->fa_add_state;
   my $s2 = $fa->fa_add_state();
 
-  $fa->vp_type($s2, 'Grammar::Formal::CharClass');
+  $fa->vp_type($s2, 'charClass');
   $fa->vp_run_list($s2, $spans->run_list);
 
   my $s3 = $fa->fa_add_state;
@@ -180,7 +180,7 @@ sub convert_range {
 }
 
 sub convert_ascii_insensitive_string {
-    my ($pattern, $fa, $root) = @_;
+    my ($pattern, $fa, $after) = @_;
 
     use bytes;
 
@@ -198,11 +198,11 @@ sub convert_ascii_insensitive_string {
       }, [ pop(@spans), $group ] ];
     }
 
-    return _add_to_automaton($group, $fa, $root);
+    return _add_to_automaton($pattern, $group, $fa, $after);
   }
 
 sub convert_case_sensitive_string {
-    my ($pattern, $fa, $root) = @_;
+    my ($pattern, $fa, $after) = @_;
 
     my @spans = map {
       ["range", { first => ord(), last => ord() }, []]
@@ -216,16 +216,16 @@ sub convert_case_sensitive_string {
       }, [ pop(@spans), $group ] ];
     }
 
-    return _add_to_automaton($group, $fa, $root);
+    return _add_to_automaton($pattern, $group, $fa, $after);
   }
 
 sub convert_grammar_root {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
 
   my $self = $fa;
 
   my %map = map {
-    $_ => [ _add_to_automaton(_pattern_rules($pattern)->{$_}, $fa) ]
+    $_ => [ _add_to_automaton($pattern, _pattern_rules($pattern)->{$_}, $fa) ]
   } keys %{ _pattern_rules($pattern) };
 
   my $s1 = $self->fa_add_state();
@@ -280,7 +280,7 @@ sub convert_grammar_root {
 }
 
 sub convert_rule {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   my $s1 = $fa->fa_add_state;
   my $s2 = $fa->fa_add_state;
 
@@ -304,7 +304,7 @@ sub convert_rule {
   $fa->vp_position($s2, _pattern_position($pattern));
 
   my ($ps, $pf) = _add_to_automaton(
-    _pattern_p($pattern), $fa, [$pattern, $s1, $s2]);
+    $pattern, _pattern_p($pattern), $fa, [$pattern, $s1, $s2]);
     
   $fa->g->add_edges(
     [ $s1, $ps ],
@@ -315,30 +315,32 @@ sub convert_rule {
 }
 
 sub convert_bounded_repetition {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _bound_repetition(
+    $pattern,
     _pattern_min($pattern),
     _pattern_max($pattern),
     _pattern_p($pattern),
     $fa,
-    $root
+    $after
   );
 }
 
 sub convert_some_or_more {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _bound_repetition(
+    $pattern,
     _pattern_min($pattern),
     undef,
     _pattern_p($pattern),
     $fa,
-    $root
+    $after
   );
 }
 
 
 sub convert_empty {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   my $s1 = $fa->fa_add_state;
   my $s2 = $fa->fa_add_state;
   $fa->g->add_edge($s1, $s2);
@@ -346,7 +348,7 @@ sub convert_empty {
 }
 
 sub convert_choice {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   my $s1 = $fa->fa_add_state;
   my $s2 = $fa->fa_add_state;
 
@@ -364,7 +366,7 @@ sub convert_choice {
   }
 
   while (my $current = shift @options) {
-    my ($p1s, $p1f) = _add_to_automaton($current, $fa, $root);
+    my ($p1s, $p1f) = _add_to_automaton($pattern, $current, $fa, $after);
 
     $fa->g->add_edges(
       [ $s1, $p1s ],
@@ -376,11 +378,11 @@ sub convert_choice {
 }
 
 sub convert_group {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   my $s1 = $fa->fa_add_state;
   my $s2 = $fa->fa_add_state;
-  my ($p1s, $p1f) = _add_to_automaton(_pattern_p1($pattern), $fa, $root);
-  my ($p2s, $p2f) = _add_to_automaton(_pattern_p2($pattern), $fa, $root);
+  my ($p1s, $p1f) = _add_to_automaton($pattern, _pattern_p1($pattern), $fa, $after);
+  my ($p2s, $p2f) = _add_to_automaton($pattern, _pattern_p2($pattern), $fa, $after);
   $fa->g->add_edges(
     [ $p1f, $p2s ],
     [ $s1, $p1s ],
@@ -390,100 +392,109 @@ sub convert_group {
 }
 
 sub convert_conjunction {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
 
   return _convert_binary_operation($pattern,
-    $fa, $root, "#conjunction");
+    $fa, $after, "#conjunction");
 }
 
 sub convert_ordered_conjunction {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
 
   return _convert_binary_operation($pattern,
-    $fa, $root, "#ordered_conjunction");
+    $fa, $after, "#ordered_conjunction");
 }
 
 sub convert_ordered_choice {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
 
   return _convert_binary_operation($pattern,
-    $fa, $root, "#ordered_choice");
+    $fa, $after, "#ordered_choice");
 }
 
 sub convert_optional {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _add_to_automaton(
+    $pattern,
     ["choice", {}, [
       ["empty", {}, []],
       _pattern_p($pattern), ]],
-    $fa, $root);
+    $fa, $after);
 }
 
 sub convert_lazy_optional {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _add_to_automaton(
+    $pattern,
     ["orderedChoice", {}, [
       ["empty", {}, []],
       _pattern_p($pattern) ]],
-    $fa, $root);
+    $fa, $after);
 }
 
 sub convert_greedy_optional {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _add_to_automaton(
+    $pattern,
     ["orderedChoice", {}, [
       _pattern_p($pattern),
       ["empty", {}, []], ]],
-    $fa, $root);
+    $fa, $after);
 }
 
 sub convert_zero_or_more {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _add_to_automaton(
+    $pattern,
     ["oneOrMore", {}, [
       ["optional", {}, [
         _pattern_p($pattern) ]]]],
-    $fa, $root);
+    $fa, $after);
 }
 
 sub convert_lazy_zero_or_more {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _add_to_automaton(
+    $pattern,
     ["lazyOneOrMore", {}, [
       ["lazyOptional", {}, [
         _pattern_p($pattern) ]]]],
-    $fa, $root);
+    $fa, $after);
 }
 
 sub convert_greedy_zero_or_more {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _add_to_automaton(
+    $pattern,
     ["greedyOneOrMore", {}, [
       ["greedyOptional", {}, [
         _pattern_p($pattern) ]]]],
-    $fa, $root);
+    $fa, $after);
 }
 
 sub convert_one_or_more {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _convert_choosy_one_or_more(
-    _pattern_p($pattern), $fa, $root, _pattern_type($pattern));
+    $pattern,
+    _pattern_p($pattern), $fa, $after, _pattern_type($pattern));
 }
 
 sub convert_greedy_one_or_more {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _convert_choosy_one_or_more(
-    _pattern_p($pattern), $fa, $root, _pattern_type($pattern));
+    $pattern,
+    _pattern_p($pattern), $fa, $after, _pattern_type($pattern));
 }
 
 sub convert_lazy_one_or_more {
-  my ($pattern, $fa, $root) = @_;
+  my ($pattern, $fa, $after) = @_;
   return _convert_choosy_one_or_more(
-    _pattern_p($pattern), $fa, $root, _pattern_type($pattern));
+    $pattern,
+    _pattern_p($pattern), $fa, $after, _pattern_type($pattern));
 }
 
 sub _convert_choosy_one_or_more {
-  my ($pattern, $fa, $root, $op) = @_;
+  my ($parent, $pattern, $fa, $after, $op) = @_;
 
   ###################################################################
   # Handles greedyOneOrMore, lazyOneOrMore, and oneOrMore directly,
@@ -497,18 +508,15 @@ sub _convert_choosy_one_or_more {
   my $if1 = $fa->fa_add_state();
   my $if2 = $fa->fa_add_state();
 
-  my ($xs, $xf) =
-    _add_to_automaton($pattern, $fa, $root);
+  my ($startX, $finalX) =
+    _add_to_automaton($parent, $pattern, $fa, $after);
 
+  my $startAfter = $fa->fa_add_state();
+  my $finalAfter = $fa->fa_add_state();
   my $fi2 = $fa->fa_add_state();
   my $fi1 = $fa->fa_add_state();
   my $fi = $fa->fa_add_state();
   my $final = $fa->fa_add_state();
-
-  if ($op =~ /^lazy/) {
-    ($if1, $if2) = ($if2, $if1);
-    ($fi1, $fi2) = ($fi2, $fi1);
-  }
 
   if ($op =~ /^(lazy|greedy)/) {
 
@@ -535,25 +543,43 @@ sub _convert_choosy_one_or_more {
     $fa->vp_p2($fi, $fi2);
   }
 
+  # used to be before the if above, but cannot have any effect there?
+  if ($op =~ /^lazy/) {
+    ($if1, $if2) = ($if2, $if1);
+    ($fi1, $fi2) = ($fi2, $fi1);
+  }
+
   $fa->g->add_edges(
-    [ $start, $if ],
-    [ $if, $if1 ],
-    [ $if, $if2 ],
-    [ $fi1, $fi ],
-    [ $fi2, $fi ],
-    [ $if1, $if ],
-    [ $if2, $xs ],
-    [ $xf, $fi2 ],
-    [ $fi, $fi1 ],
-    [ $fi, $if ],
-    [ $fi, $final ],
+    [ $start, $startX ], 
+
+    [ $if, $if1 ], 
+    [ $if, $if2 ], 
+    [ $fi1, $fi ], 
+    [ $fi2, $fi ], 
+
+    [ $finalX, $if ], 
+
+    [ $if1, $startX ], 
+
+    [ $if2, $startAfter ], 
+    [ $finalAfter, $fi1 ], 
+    [ $finalAfter, $fi2 ], 
+
+  #  [ $startX, $finalX ], 
+  #  [ $startAfter, $finalAfter ], 
+
+    [ $fi, $fi1 ], 
+    [ $fi, $fi2 ], 
+    [ $fi, $final ], 
   );
 
-  return ($start, $final);  
+  push @$after, [ $finalAfter, $final];
+
+  return ($start, $startAfter);  
 }
 
 sub _convert_binary_operation {
-  my ($pattern, $fa, $root, $op) = @_;
+  my ($pattern, $fa, $after, $op) = @_;
   my $anon_start = $fa->fa_add_state();
   my $anon_final = $fa->fa_add_state();
   my $if = $fa->fa_add_state();
@@ -579,8 +605,8 @@ sub _convert_binary_operation {
   $fa->vp_position($p1_fi, _pattern_position($pattern));
   $fa->vp_position($p2_fi, _pattern_position($pattern));
 
-  my ($p1s, $p1f) = _add_to_automaton(_pattern_p1($pattern), $fa, $root);
-  my ($p2s, $p2f) = _add_to_automaton(_pattern_p2($pattern), $fa, $root);
+  my ($p1s, $p1f) = _add_to_automaton($pattern, _pattern_p1($pattern), $fa, $after);
+  my ($p2s, $p2f) = _add_to_automaton($pattern, _pattern_p2($pattern), $fa, $after);
 
   $fa->vp_position($if, _pattern_position($pattern));
   $fa->vp_partner($if, $fi);
@@ -615,8 +641,8 @@ sub _convert_binary_operation {
 }
 
 sub convert_subtraction {
-  my ($pattern, $fa, $root) = @_;
-  return _convert_binary_operation($pattern, $fa, $root, "#exclusion");
+  my ($pattern, $fa, $after) = @_;
+  return _convert_binary_operation($pattern, $fa, $after, "#exclusion");
 }
 
 1;
