@@ -7,6 +7,7 @@ use Storable qw/dclone/;
 
 our %arity = (
   'grammar'                => [ undef, undef ],
+  'ranges'                 => [ undef, undef ],
 
   'repetition'             => [ 1, 'group' ],
 

@@ -88,6 +88,7 @@ has 'pattern_converters' => (
 
     'ref'                    => \&convert_reference,
     'range'                  => \&convert_range,
+    'ranges'                 => \&convert_ranges,
     'asciiInsensitiveString' => \&convert_ascii_insensitive_string,
     'string'                 => \&convert_case_sensitive_string,
     'grammar'                => \&convert_grammar_root,
@@ -111,6 +112,7 @@ has 'pattern_converters' => (
     'lazyOptional'           => \&convert_lazy_optional,
     'lazyOneOrMore'          => \&convert_lazy_one_or_more,
     'lazyZeroOrMore'         => \&convert_lazy_zero_or_more,
+
   } },
 );
 
@@ -285,6 +287,7 @@ sub vp_name { _vp_property('name', @_) }
 sub vp_type { _vp_property('type', @_) }
 sub vp_run_list { _vp_property('run_list', @_) }
 sub vp_position { _vp_property('position', @_) }
+sub vp_shadows { _vp_property('shadows', @_) }
 
 #####################################################################
 # Constructor

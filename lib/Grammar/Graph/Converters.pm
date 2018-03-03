@@ -107,6 +107,13 @@ sub _pattern_rules    { my ($pattern) = @_;
   };
 }
 
+sub _pattern_ranges    {
+  my ($pattern) = @_;
+  return 
+    grep { $_->[0] eq 'range' }
+    @{ $pattern->[2] }
+}
+
 sub _pattern_value    { my ($pattern) = @_;
   return $pattern->[1]->{text} if $pattern->[0] eq 'asciiInsensitiveString';
   return $pattern->[1]->{text} if $pattern->[0] eq 'string';
@@ -156,6 +163,34 @@ sub convert_not_allowed {
 #    $fa->g->add_edge($s2, $s3);
     return ($s1, $s3);
   }
+
+sub convert_ranges {
+  my ($pattern, $fa, $after) = @_;
+
+  my @sets = map {
+    Set::IntSpan->new([[
+      _pattern_first($_),
+      _pattern_last($_),
+    ]])
+  } _pattern_ranges($pattern);
+
+  my $spans = Set::IntSpan->new;
+
+  $spans->U($_) for @sets;
+
+  my $s1 = $fa->fa_add_state;
+  my $s2 = $fa->fa_add_state();
+
+  $fa->vp_type($s2, 'charClass');
+  $fa->vp_run_list($s2, $spans->run_list);
+
+  my $s3 = $fa->fa_add_state;
+  $fa->g->add_edges(
+    [ $s1, $s2 ],
+    [ $s2, $s3 ],
+  );
+  return ($s1, $s3);
+}
 
 sub convert_range {
   my ($pattern, $fa, $after) = @_;
