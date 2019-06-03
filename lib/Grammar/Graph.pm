@@ -14,6 +14,7 @@ use Graph::Directed;
 use Graph::Feather;
 use Moo;
 use Types::Standard qw/:all/;
+use Log::Any;
 
 use Grammar::Graph::JET;
 
@@ -43,6 +44,14 @@ our @EXPORT = qw(
 #####################################################################
 # Attributes
 #####################################################################
+
+has '_log' => (
+  is       => 'rw',
+  required => 0,
+  default  => sub {
+    Log::Any->get_logger()
+  },
+);
 
 has 'g' => (
   is       => 'ro',
@@ -121,14 +130,16 @@ has 'pattern_converters' => (
 #####################################################################
 sub _copy_predecessors {
   my ($self, $src, $dst) = @_;
-  $self->g->add_edge($_, $dst)
-    for $self->g->predecessors($src);
+  $self->g->add_edges(map {
+    [ $_, $dst ]
+  } $self->g->predecessors($src));
 }
 
 sub _copy_successors {
   my ($self, $src, $dst) = @_;
-  $self->g->add_edge($dst, $_)
-    for $self->g->successors($src);
+  $self->g->add_edges(map {
+    [ $dst, $_ ]
+  } $self->g->successors($src));
 }
 
 sub _find_endpoints {
@@ -206,20 +217,41 @@ sub _find_id_by_shortname {
 #####################################################################
 sub fa_remove_useless_epsilons {
   my ($graph, @todo) = @_;
-  my %deleted;
 
-  for my $v (sort @todo) {
-    next unless $graph->vertex_is_useless($v);
-    next unless $graph->g->successors($v); # FIXME(bh): why?
-    next unless $graph->g->predecessors($v); # FIXME(bh): why?
-    for my $src ($graph->g->predecessors($v)) {
-      for my $dst ($graph->g->successors($v)) {
-        $graph->g->add_edge($src, $dst);
+  $graph->_log->debugf("begin fa_remove_useless_epsilons");
+
+  my @filtered = grep {
+    $graph->vertex_is_useless($_)
+    and
+    $graph->g->successors($_)   # FIXME(bh): why? start/final?
+    and
+    $graph->g->predecessors($_) # FIXME(bh): why? start/final?
+  } @todo;
+
+  $graph->_log->debugf("will remove %u vertices", 
+    scalar(@filtered));
+
+  for my $v (sort @filtered) {
+
+#    $graph->_log->debugf("removing vertex %s", $v); 
+
+    my @edges;
+    my @pred = $graph->g->predecessors($v);
+    my @succ = $graph->g->successors($v);
+
+    for my $src (@pred) {
+      for my $dst (@succ) {
+        push @edges, [ $src, $dst ];
       }
     }
-    $deleted{$v}++;
+
+    $graph->g->add_edges(@edges);
+    $graph->g->delete_vertex($v);
+
   }
-  $graph->g->delete_vertices(keys %deleted);
+
+  $graph->_log->debugf("finished fa_remove_useless_epsilons");
+
 };
 
 #####################################################################
@@ -283,7 +315,7 @@ sub _vp_property {
 sub vp_partner { _vp_property('partner', @_) }
 sub vp_p1 { _vp_property('p1', @_) }
 sub vp_p2 { _vp_property('p2', @_) }
-sub vp_name { _vp_property('name', @_) }
+sub vp_name { warn "vp_name for rule called" if ($_[2] // '') eq 'rule'; _vp_property('name', @_) }
 sub vp_type { _vp_property('type', @_) }
 sub vp_run_list { _vp_property('run_list', @_) }
 sub vp_position { _vp_property('position', @_) }
@@ -306,9 +338,33 @@ sub fa_drop_rules_not_needed_for {
   my $id = $self->_find_id_by_shortname($shortname);
   my %keep = map { $_ => 1 } $id, $ref_graph->all_successors($id);
 
-  delete $self->symbol_table->{$_} for grep {
+# use YAML::XS;
+# warn Dump \%keep;
+# warn Dump $self->symbol_table;
+# $self->g->{dbh}->sqlite_backup_to_file('B.sqlite');
+# die;
+
+  my @victims = grep {
     not $keep{$_}
   } keys %{ $self->symbol_table };
+
+  for (@victims) {
+
+    $self->g->delete_vertices(
+      graph_vertices_between(
+        $self->g,
+        $self->symbol_table->{$_}{start_vertex},
+        $self->symbol_table->{$_}{final_vertex},
+      ),
+      # FIXME: below redundant? 
+      $self->symbol_table->{$_}{start_vertex},
+      $self->symbol_table->{$_}{final_vertex},
+    );
+
+    delete $self->symbol_table->{$_};
+
+  }
+
 }
 
 #####################################################################
@@ -317,6 +373,29 @@ sub fa_drop_rules_not_needed_for {
 sub fa_truncate {
   my ($self) = @_;
 
+  my %keep = map { $_ => 1 } (
+    graph_vertices_between($self->g,
+      $self->start_vertex,
+      $self->final_vertex),
+    $self->start_vertex,
+    $self->final_vertex,
+  );
+
+  for my $v (keys %keep) {
+    next unless $self->vp_partner($v);
+    delete $keep{ $v }
+      unless $keep{ $self->vp_partner($v) };
+  }
+
+  $self->g->delete_vertices(grep {
+    not $keep{ $_ }
+#    and
+#    not $keep{ $self->vp_partner($_) // '' }
+  } $self->g->vertices);
+
+  return;
+
+  # TODO: remove
   graph_delete_vertices_except($self->g,
     graph_vertices_between($self->g,
       $self->start_vertex,

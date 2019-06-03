@@ -50,15 +50,49 @@ sub fa_expand_one_by_copying {
       Vertex_Attribute
     WHERE
       attribute_name = "type"
-      AND attribute_value = "Reference"
+      AND
+      attribute_value = "Reference"
   });
 
   my %id_to_refs = partition_by {
     $self->vp_name($_);
   } @ref_vertices;
 
+  $self->_log->debugf("found %u instances",
+    scalar(@{ $id_to_refs{$id} }));
+
+  return unless @{ $id_to_refs{$id} };
+
+  return unless $self->symbol_table->{$id};
+
+  # cache for speed
+  my %want = map { $_ => 1 } graph_vertices_between($self->g,
+    $self->symbol_table->{$id}{start_vertex},
+    $self->symbol_table->{$id}{final_vertex}
+  );
+
+=pod
+
+  my @rows = $self->g->{dbh}->selectall_array(q{
+    select * from vertex_attribute where attribute_value = 'rule'
+  });
+
+use YAML::XS;
+
+  die Dump(\@rows) if @rows > 2;
+
+#  $self->g->{dbh}->sqlite_backup_to_file('BUG.sqlite') if grep { 'rule' eq ($self->vp_name($_) // '') } keys %want;
+
+  $self->_log->debugf("want %s,%s", $self->vp_type($_), $self->vp_name($_))
+    for grep { 'rule' eq ($self->vp_name($_) // '') } keys %want;
+
+=cut
+
   for my $v (@{ $id_to_refs{$id} }) {
-    my ($src, $dst) = $self->_clone_non_terminal($id);
+
+    my ($src, $dst) = $self->_clone_non_terminal($id, \%want);
+
+#    warn "cloned $v into $src,$dst";
 
     $self->_copy_predecessors($v, $src);
     $self->_copy_successors($v, $dst);
@@ -69,16 +103,31 @@ sub fa_expand_one_by_copying {
 sub fa_expand_references {
   my ($self) = @_;
 
+  $self->_log->debugf("start fa_expand_references");
+
   my $ref_graph = $self->_fa_ref_graph;
+
+  $self->_log->debugf("computing scg");
   my $scg = $ref_graph->strongly_connected_graph;
+  $self->_log->debugf("done computing scg");
 
   my @topo = grep { not $ref_graph->has_edge($_, $_) }
     reverse $scg->toposort;
 
+  $self->_log->debugf("expanding regulars");
+
   for my $id (@topo) {
+
+    $self->_log->debugf("expanding %s...", $id);
+
     # NOTE: Relies on @topo containing invalid a+b+c+... IDs
     $self->fa_expand_one_by_copying($id);
+    # NOTE: cannot comment this ^ out and let all referenced be
+    # handled by the code below, reasons may have to do with lack
+    # of topological ordering there
   }
+
+  $self->_log->debugf("done expanding regulars");
 
   for my $v ($self->g->vertices) {
 
@@ -86,10 +135,7 @@ sub fa_expand_references {
 
     my $id = $self->vp_name( $v );
 
-    # TODO: explain
-    # TODO: remove
-#    next if $scg->has_vertex("$id")
-#      && !$ref_graph->has_edge("$id", "$id");
+    # 
 
     my $v1 = $self->fa_add_state();
     my $v2 = $self->fa_add_state();
@@ -111,7 +157,7 @@ sub fa_expand_references {
 
     $self->_copy_successors($v, $v2);
     $self->_copy_predecessors($final, $v2);
-    
+   
     $self->g->delete_vertex($v);
   }
 

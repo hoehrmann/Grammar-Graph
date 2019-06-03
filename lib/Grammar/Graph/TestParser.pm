@@ -239,7 +239,7 @@ sub grammar_successors {
 #####################################################################
 
 package Grammar::Graph::TestParser;
-use Algorithm::ConstructDFA::XS 0.24;
+# use Algorithm::ConstructDFA::XS 0.24;
 use Parse::ABNF 0.20;
 use Grammar::Formal 0.20;
 use Grammar::Graph 0.20;

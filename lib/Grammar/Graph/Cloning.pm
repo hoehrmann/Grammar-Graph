@@ -40,22 +40,19 @@ sub _clone_label_to {
 # Clone a subgraph between two vertices
 #####################################################################
 sub _clone_subgraph_between {
-  my ($self, $src, $dst) = @_;
-
-  my %want = map { $_ => 1 }
-    graph_vertices_between($self->g, $src, $dst);
+  my ($self, $want, $src, $dst) = @_;
 
   my %map;
   
-  for my $k (keys %want) {
+  for my $k (keys %$want) {
 
     $map{$k} //= $self->fa_add_state();
 
-    _clone_label_to($self, $k, $map{$k}, \%want, \%map);
+    _clone_label_to($self, $k, $map{$k}, $want, \%map);
   }
 
   while (my ($old, $new) = each %map) {
-    for (grep { $want{$_} } $self->g->successors($old)) {
+    for (grep { $want->{$_} } $self->g->successors($old)) {
       $self->g->add_edge($new, $map{$_});
     }
   }
@@ -64,8 +61,10 @@ sub _clone_subgraph_between {
 }
 
 sub _clone_non_terminal {
-  my ($self, $id) = @_;
+  my ($self, $id, $want) = @_;
+
   return $self->_clone_subgraph_between(
+    $want,
     $self->symbol_table->{$id}{start_vertex},
     $self->symbol_table->{$id}{final_vertex},
   );
