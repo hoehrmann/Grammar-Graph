@@ -23,6 +23,7 @@ use Grammar::Graph::Converters;
 use Grammar::Graph::Cloning;
 use Grammar::Graph::RefHandling;
 use Grammar::Graph::ClassHandling;
+use Grammar::Graph::Simplify;
 
 #####################################################################
 # Globals
@@ -91,38 +92,27 @@ has 'pattern_converters' => (
   is       => 'ro',
   required => 1,
   isa      => HashRef[CodeRef],
-  default  => sub { {
-#    'Grammar::Formal::NotAllowed' => \&convert_not_allowed,
-#    'Grammar::Formal::CharClass' => \&convert_char_class,
-
-    'ref'                    => \&convert_reference,
-    'range'                  => \&convert_range,
-    'ranges'                 => \&convert_ranges,
-    'asciiInsensitiveString' => \&convert_ascii_insensitive_string,
-    'string'                 => \&convert_case_sensitive_string,
-    'grammar'                => \&convert_grammar_root,
-    'rule'                   => \&convert_rule,
-    'repetition'             => \&convert_bounded_repetition,
-    'someOrMore'             => \&convert_some_or_more,
-    'empty'                  => \&convert_empty,
-    'group'                  => \&convert_group,
-    'choice'                 => \&convert_choice,
-    'conjunction'            => \&convert_conjunction,
-    'exclusion'              => \&convert_subtraction,
-    'orderedChoice'          => \&convert_ordered_choice,
-    'orderedConjunction'     => \&convert_ordered_conjunction,
-
-    'optional'               => \&convert_optional,
-    'oneOrMore'              => \&convert_one_or_more,
-    'zeroOrMore'             => \&convert_zero_or_more,
-    'greedyOptional'         => \&convert_greedy_optional,
-    'greedyOneOrMore'        => \&convert_greedy_one_or_more,
-    'greedyZeroOrMore'       => \&convert_greedy_zero_or_more,
-    'lazyOptional'           => \&convert_lazy_optional,
-    'lazyOneOrMore'          => \&convert_lazy_one_or_more,
-    'lazyZeroOrMore'         => \&convert_lazy_zero_or_more,
-
-  } },
+  default  => sub {
+    return {
+      'ref'                    => \&convert_reference,
+      'range'                  => \&convert_range,
+      'charClass'              => \&convert_char_class,
+      'asciiInsensitiveString' => \&convert_ascii_insensitive_string,
+      'grammar'                => \&convert_grammar_root,
+      'rule'                   => \&convert_rule,
+      'empty'                  => \&convert_empty,
+      'group'                  => \&convert_group,
+      'choice'                 => \&convert_choice,
+      'conjunction'            => \&convert_conjunction,
+      'exclusion'              => \&convert_subtraction,
+      'orderedChoice'          => \&convert_ordered_choice,
+      'orderedConjunction'     => \&convert_ordered_conjunction,
+      'oneOrMore'              => \&convert_one_or_more,
+      'greedyOneOrMore'        => \&convert_greedy_one_or_more,
+      'lazyOneOrMore'          => \&convert_lazy_one_or_more,
+      'notAllowed'             => \&convert_not_allowed,
+    }
+  },
 );
 
 #####################################################################
@@ -265,7 +255,7 @@ sub get_vertex_char_object {
   die unless defined $label;
   die if ref $label;
 
-  return Set::IntSpan->new($label);
+  return Set::IntSpan->new(split/,/, $label);
 }
 
 sub vertex_isa {
@@ -423,7 +413,12 @@ sub from_binary_jet {
   my ($class, $formal, $shortname, %options) = @_;
   my $self = $class->new(root_name => $shortname);
 
-  _add_to_automaton(undef, $formal, $self);
+  my $simple = Grammar::Graph::Simplify::simplify({}, $formal);
+
+  use YAML::XS;
+  warn Dump $simple;
+
+  _add_to_automaton(undef, $simple, $self);
   fa_remove_useless_epsilons($self, $self->g->vertices);
 
   return $self;
