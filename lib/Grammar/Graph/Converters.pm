@@ -31,15 +31,9 @@ sub _pattern_p1 {
 
 sub _pattern_p2       { my ($pattern) = @_; $pattern->[2]->[1] }
 sub _pattern_p        { my ($pattern) = @_; $pattern->[2]->[0] }
-sub _pattern_min      { my ($pattern) = @_; $pattern->[1]->{min} }
-sub _pattern_max      { my ($pattern) = @_; $pattern->[1]->{max} }
 sub _pattern_run_list { my ($pattern) = @_; $pattern->[1]->{run_list} }
 
-sub _pattern_first      { my ($pattern) = @_; $pattern->[1]->{first} }
-sub _pattern_last      { my ($pattern) = @_; $pattern->[1]->{last} }
-
 sub _pattern_name     { my ($pattern) = @_; $pattern->[1]->{name} }
-sub _pattern_position { my ($pattern) = @_; $pattern->[1]->{position} }
 
 sub _pattern_type     { my ($pattern) = @_; $pattern->[0] }
 
@@ -49,13 +43,6 @@ sub _pattern_rules    { my ($pattern) = @_;
     grep { $_->[0] eq 'rule' }
     @{ $pattern->[2] }
   };
-}
-
-sub _pattern_value {
-  my ($pattern) = @_;
-  return $pattern->[1]->{text} if $pattern->[0] eq 'asciiInsensitiveString';
-  return $pattern->[1]->{text} if $pattern->[0] eq 'string';
-  die "trying to get value for " . $pattern->[0]
 }
 
 #####################################################################
@@ -105,50 +92,6 @@ sub convert_char_class {
   );
   return ($s1, $s3);
 }
-
-sub convert_range {
-  my ($pattern, $fa, $after) = @_;
-
-  my $spans = Set::IntSpan->new([[
-    _pattern_first($pattern),
-    _pattern_last($pattern),
-  ]]);
-
-  my $s1 = $fa->fa_add_state;
-  my $s2 = $fa->fa_add_state();
-
-  $fa->vp_type($s2, 'charClass');
-  $fa->vp_run_list($s2, $spans->run_list);
-
-  my $s3 = $fa->fa_add_state;
-  $fa->g->add_edges(
-    [ $s1, $s2 ],
-    [ $s2, $s3 ],
-  );
-  return ($s1, $s3);
-}
-
-sub convert_ascii_insensitive_string {
-    my ($pattern, $fa, $after) = @_;
-
-    use bytes;
-
-    my @spans = map {
-      ["choice", {}, [
-        ["range", { first => ord(lc), last => ord(lc) }, []],
-        ["range", { first => ord(uc), last => ord(uc) }, []]]]
-    } split//, _pattern_value($pattern);
-
-    my $group = ["empty", {}, []];
-
-    while (@spans) {
-      $group = ["group", {
-        position => _pattern_position($pattern)
-      }, [ pop(@spans), $group ] ];
-    }
-
-    return _add_to_automaton($pattern, $group, $fa, $after);
-  }
 
 sub convert_grammar_root {
   my ($pattern, $fa, $after) = @_;
@@ -227,12 +170,10 @@ sub convert_rule {
   $fa->vp_type($s1, 'Start');
   $fa->vp_name($s1, $name);
   $fa->vp_partner($s1, $s2);
-  $fa->vp_position($s1, _pattern_position($pattern));
 
   $fa->vp_type($s2, 'Final');
   $fa->vp_name($s2, $name);
   $fa->vp_partner($s2, $s1);
-  $fa->vp_position($s2, _pattern_position($pattern));
 
   my ($ps, $pf) = _add_to_automaton(
     $pattern, _pattern_p($pattern), $fa, [$pattern, $s1, $s2]);
@@ -446,22 +387,15 @@ sub _convert_binary_operation {
   $fa->vp_partner($p1_fi, $if_p1);
   $fa->vp_partner($p2_fi, $if_p2);
 
-  $fa->vp_position($if_p1, _pattern_position($pattern));
-  $fa->vp_position($if_p2, _pattern_position($pattern));
-  $fa->vp_position($p1_fi, _pattern_position($pattern));
-  $fa->vp_position($p2_fi, _pattern_position($pattern));
-
   my ($p1s, $p1f) = _add_to_automaton($pattern, _pattern_p1($pattern), $fa, $after);
   my ($p2s, $p2f) = _add_to_automaton($pattern, _pattern_p2($pattern), $fa, $after);
 
-  $fa->vp_position($if, _pattern_position($pattern));
   $fa->vp_partner($if, $fi);
   $fa->vp_p1($if, $if_p1);
   $fa->vp_p2($if, $if_p2);
   $fa->vp_name($if, $op);
   $fa->vp_type($if, 'If');
 
-  $fa->vp_position($fi, _pattern_position($pattern));
   $fa->vp_partner($fi, $if);
   $fa->vp_p1($fi, $p1_fi);
   $fa->vp_p2($fi, $p2_fi);

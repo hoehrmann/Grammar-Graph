@@ -94,22 +94,25 @@ has 'pattern_converters' => (
   isa      => HashRef[CodeRef],
   default  => sub {
     return {
-      'ref'                    => \&convert_reference,
-      'range'                  => \&convert_range,
-      'charClass'              => \&convert_char_class,
-      'asciiInsensitiveString' => \&convert_ascii_insensitive_string,
       'grammar'                => \&convert_grammar_root,
       'rule'                   => \&convert_rule,
+
+      'ref'                    => \&convert_reference,
+
+      'charClass'              => \&convert_char_class,
       'empty'                  => \&convert_empty,
       'group'                  => \&convert_group,
       'choice'                 => \&convert_choice,
+
       'conjunction'            => \&convert_conjunction,
       'exclusion'              => \&convert_subtraction,
       'orderedChoice'          => \&convert_ordered_choice,
       'orderedConjunction'     => \&convert_ordered_conjunction,
+
       'oneOrMore'              => \&convert_one_or_more,
       'greedyOneOrMore'        => \&convert_greedy_one_or_more,
       'lazyOneOrMore'          => \&convert_lazy_one_or_more,
+
       'notAllowed'             => \&convert_not_allowed,
     }
   },
@@ -308,8 +311,6 @@ sub vp_p2 { _vp_property('p2', @_) }
 sub vp_name { warn "vp_name for rule called" if ($_[2] // '') eq 'rule'; _vp_property('name', @_) }
 sub vp_type { _vp_property('type', @_) }
 sub vp_run_list { _vp_property('run_list', @_) }
-sub vp_position { _vp_property('position', @_) }
-sub vp_shadows { _vp_property('shadows', @_) }
 
 #####################################################################
 # Constructor
@@ -438,6 +439,8 @@ sub _add_to_automaton {
 
 #  warn join "\t", "parent", $parent->[0], "child", $pattern->[0], "parent_arity", $parent_arity->[0] // '';
 
+  # TODO: This should not be defined here locally, should be some
+  # more global pattern type meta data thingy.
   my %child_is_independent_sequence = map { $_ => 1 } (
     'rule',
     'choice',

@@ -17,7 +17,7 @@ sub simplify {
   my %handler = (
     'range'                  => \&range,
     'ranges'                 => \&ranges,
-#    'asciiInsensitiveString' => \&asciiInsensitiveString,
+    'asciiInsensitiveString' => \&asciiInsensitiveString,
     'string'                 => \&string,
     'repetition'             => \&repetition,
     'optional'               => \&optional,
@@ -82,10 +82,6 @@ sub repetition {
 
 }
 
-sub asciiInsensitiveString {
-  ...
-}
-
 sub ranges {
   my ($args, @kids) = @_;
 
@@ -130,6 +126,26 @@ sub string {
 
   return $group;
 
+}
+
+sub asciiInsensitiveString {
+  my ($args, @kids) = @_;
+
+  my @chars = split//, $args->{text};
+
+  use bytes;
+
+  my @spans = map {
+    charClass({ run_list => join(',', ord(uc), ord(lc)) })
+  } @chars;
+
+  my $group = empty({});
+
+  while (@spans) {
+    $group = group({}, pop(@spans), $group);
+  }
+
+  return $group;
 }
 
 sub empty {
