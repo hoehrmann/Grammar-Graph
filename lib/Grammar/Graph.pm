@@ -15,6 +15,7 @@ use Graph::Feather;
 use Moo;
 use Types::Standard qw/:all/;
 use Log::Any;
+use XML::LibXML;
 
 use Grammar::Graph::JET;
 
@@ -57,10 +58,7 @@ has '_log' => (
 has 'g' => (
   is       => 'ro',
   required => 1,
-#  isa      => 'Graph::Feather',
   default  => sub { Graph::Feather->new },
-#  isa      => 'Graph::Directed',
-#  default  => sub { Graph::Directed->new },
 );
 
 has 'root_name' => (
@@ -272,21 +270,9 @@ sub vertex_isa {
 sub vertex_isa_reference { vertex_isa(@_, 'Reference') };
 sub vertex_isa_charclass { vertex_isa(@_, 'charClass') };
 
-sub vertex_isa_prelude { vertex_isa(@_, 'Prelude') };
-sub vertex_isa_postlude { vertex_isa(@_, 'Postlude') };
-
 sub vertex_is_useless {
   my ($self, $v) = @_;
   return ($self->vp_type($v) // 'Empty') eq 'Empty';
-}
-
-sub is_terminal_vertex {
-  my ($self, $v) = @_;
-  # TODO(bh): anomaly with Reference?
-  return 1 if $self->vertex_isa_prelude($v);
-  return 1 if $self->vertex_isa_postlude($v);
-  return 1 if $self->vertex_isa_charclass($v);
-  return 0;
 }
 
 #####################################################################
@@ -323,39 +309,8 @@ sub vp_run_list { _vp_property('run_list', @_) }
 sub fa_drop_rules_not_needed_for {
   my ($self, $shortname) = @_;
 
-  # TODO: Just ignore these when expanding references?
-
-  my $ref_graph = $self->_fa_ref_graph();
-  my $id = $self->_find_id_by_shortname($shortname);
-  my %keep = map { $_ => 1 } $id, $ref_graph->all_successors($id);
-
-# use YAML::XS;
-# warn Dump \%keep;
-# warn Dump $self->symbol_table;
-# $self->g->{dbh}->sqlite_backup_to_file('B.sqlite');
-# die;
-
-  my @victims = grep {
-    not $keep{$_}
-  } keys %{ $self->symbol_table };
-
-  for (@victims) {
-
-    $self->g->delete_vertices(
-      graph_vertices_between(
-        $self->g,
-        $self->symbol_table->{$_}{start_vertex},
-        $self->symbol_table->{$_}{final_vertex},
-      ),
-      # FIXME: below redundant? 
-      $self->symbol_table->{$_}{start_vertex},
-      $self->symbol_table->{$_}{final_vertex},
-    );
-
-    delete $self->symbol_table->{$_};
-
-  }
-
+  # leftover
+  return;
 }
 
 #####################################################################
@@ -399,6 +354,35 @@ sub fa_truncate {
 #####################################################################
 # Constructor
 #####################################################################
+
+sub _xml2jet {
+  my ($elem) = @_;
+
+  my %attr;
+
+  for my $x ($elem->attributes) {
+    $attr{ $x->nodeName } = $x->nodeValue;
+  }
+
+  my @kids = map {
+    _xml2jet($_)
+  } $elem->getChildrenByTagName('*');
+
+  return [ $elem->nodeName, \%attr, \@kids ];
+}
+
+sub from_xlx_file {
+
+  my ($class, $path, $shortname) = @_;
+
+  my $doc = XML::LibXML->load_xml(location => $path);
+
+  my $jet = _xml2jet($doc->documentElement);
+
+  return from_jet($class, $jet, $shortname);
+
+}
+
 sub from_jet {
   my ($class, $formal, $shortname, %options) = @_;
 
@@ -416,9 +400,6 @@ sub from_binary_jet {
 
   my $simple = Grammar::Graph::Simplify::simplify({}, $formal);
 
-  use YAML::XS;
-  warn Dump $simple;
-
   _add_to_automaton(undef, $simple, $self);
   fa_remove_useless_epsilons($self, $self->g->vertices);
 
@@ -427,17 +408,11 @@ sub from_binary_jet {
 
 sub _add_to_automaton {
   my ($parent, $pattern, $self, $after) = @_;
-#  die $pattern unless ref $pattern eq 'ARRAY';
 
-#  warn join "\t", "parent", $parent->[0], "child", $pattern->[0];
+#  die $pattern unless ref $pattern eq 'ARRAY';
 
   my $converter = $self->find_converter(ref $pattern)
     // $self->find_converter($pattern->[0]);
-
-#  my $parent_arity = $Grammar::Graph::JET::arity{ $parent->[0] // '' };
-#  my $pattern_arity = $Grammar::Graph::JET::arity{ $pattern->[0] };
-
-#  warn join "\t", "parent", $parent->[0], "child", $pattern->[0], "parent_arity", $parent_arity->[0] // '';
 
   # TODO: This should not be defined here locally, should be some
   # more global pattern type meta data thingy.
@@ -468,19 +443,6 @@ sub _add_to_automaton {
 
       return ($ps, $pf);
 
-#      my $x1 = $self->fa_add_state();
-#      my $x2 = $self->fa_add_state();
-
-#      $self->vp_type($x1, 'Start');
-#      $self->vp_name($x1, "START GROUP " . $after . ' ' . $pattern->[0]);
-#      $self->vp_type($x2, 'Final');
-#      $self->vp_name($x2, "FINAL GROUP " . $after . ' ' . $pattern->[0]);
-#      $self->g->add_edges(
-#        [ $x1, $ps ],
-#        [ $pf, $x2 ],
-#      );
-#      return ($x1, $x2);
-
     } else {
       my ($ps, $pf) = $converter->($pattern, $self, $after);
       my $x1 = $self->fa_add_state();
@@ -490,21 +452,6 @@ sub _add_to_automaton {
     }
   }
 
-  use Data::Dumper;
-  use JSON;
-  warn Dumper $pattern;
-  warn JSON->new->pretty(1)->encode($pattern);
-  
-  die "no converter for " . $pattern->[0];
-
-  ...;
-
-  my $s1 = $self->fa_add_state;
-  my $s2 = $self->fa_add_state(p => $pattern);
-  my $s3 = $self->fa_add_state;
-  $self->g->add_edge($s1, $s2);
-  $self->g->add_edge($s2, $s3);
-  return ($s1, $s3);
 }
 
 1;
