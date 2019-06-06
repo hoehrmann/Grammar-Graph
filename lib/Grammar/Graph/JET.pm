@@ -108,44 +108,6 @@ sub _make_jet_binary {
   return $node;
 }
 
-sub to_json_string {
-  my ($self) = @_;
-  return _to_json_tree($self->{_});
-}
-
-sub _to_json_tree {
-  my ($node) = @_;
-
-  my $result = _to_json_tree_step($node, 0);
-
-  $result =~ s/^(\s*\["rule")/\n$1/mg;
-  $result =~ s/,\s*$//;
-
-  return $result;
-}
-
-sub _to_json_tree_step {
-  my ($node, $depth) = @_;
-
-  my ($name, $args, $children) = @$node;
-
-  return '' unless @$node;
-
-  # TODO: JSON encode $name
-
-  my $result = sprintf qq{\n%*s["%s", %s, [},
-    $depth*2, '', ($name // ''),
-    JSON->new->space_after(1)->canonical(1)->encode($args);
-
-  $result .= _to_json_tree_step($_, $depth+1) for @$children;
-
-  $result .= sprintf qq{]],};
-
-  $result =~ s/,\]/]/sg;
-
-  return $result;
-}
-
 1;
 
 __END__
