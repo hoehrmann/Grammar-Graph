@@ -102,14 +102,14 @@ has 'pattern_converters' => (
       'group'                  => \&convert_group,
       'choice'                 => \&convert_choice,
 
-      'conjunction'            => \&convert_conjunction,
-      'exclusion'              => \&convert_subtraction,
-      'orderedChoice'          => \&convert_ordered_choice,
-      'orderedConjunction'     => \&convert_ordered_conjunction,
+      'conjunction'            => \&convert_binary_helper,
+      'exclusion'              => \&convert_binary_helper,
+      'orderedChoice'          => \&convert_binary_helper,
+      'orderedConjunction'     => \&convert_binary_helper,
 
-      'oneOrMore'              => \&convert_one_or_more,
-      'greedyOneOrMore'        => \&convert_greedy_one_or_more,
-      'lazyOneOrMore'          => \&convert_lazy_one_or_more,
+      'oneOrMore'              => \&convert_one_or_more_helper,
+      'greedyOneOrMore'        => \&convert_one_or_more_helper,
+      'lazyOneOrMore'          => \&convert_one_or_more_helper,
 
       'notAllowed'             => \&convert_not_allowed,
     }
@@ -360,8 +360,14 @@ sub _xml2jet {
 
   my %attr;
 
+  # TODO: check name, munge name
+
   for my $x ($elem->attributes) {
     $attr{ $x->nodeName } = $x->nodeValue;
+  }
+
+  if (grep { $_ eq $elem->nodeName } 'rule', 'ref') {
+    $attr{ def_path } = $elem->nodePath;
   }
 
   my @kids = map {

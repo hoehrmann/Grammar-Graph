@@ -18,15 +18,7 @@ use Types::Standard qw/:all/;
 
 sub _pattern_p1 {
   my ($pattern) = @_;
-
-  my $result = eval {
-    $pattern->[2]->[0]
-  };
-
-  return $result unless $@;
-
-  use Data::Dumper;
-  die Dumper $pattern;
+  return $pattern->[2]->[0];
 }
 
 sub _pattern_p2       { my ($pattern) = @_; $pattern->[2]->[1] }
@@ -127,21 +119,6 @@ sub convert_grammar_root {
   die unless defined $id;
   my $rd = $self->symbol_table->{$id};
 
-=pod
-
-  _copy_predecessors($self, $rd->{start_vertex}, $s1);
-  _copy_successors($self, $rd->{start_vertex}, $s1);
-  graph_isolate_vertex($self->g, $rd->{start_vertex});
-
-  _copy_predecessors($self, $rd->{final_vertex}, $s2);
-  _copy_successors($self, $rd->{final_vertex}, $s2);
-  graph_isolate_vertex($self->g, $rd->{final_vertex});
-
-  $self->g->add_edge($rd->{start_vertex}, $s1);
-  $self->g->add_edge($s2, $rd->{final_vertex});
-
-=cut
-
   $fa->g->add_edges(
     [ $sS, $s1 ],
     [ $s1, $rd->{start_vertex} ],
@@ -165,7 +142,7 @@ sub convert_rule {
   $fa->symbol_table->{ $name } //= {};
   $fa->symbol_table->{ $name }{start_vertex} = $s1;
   $fa->symbol_table->{ $name }{final_vertex} = $s2;
-  $fa->symbol_table->{ $name }{shortname} = _pattern_name($pattern);
+  $fa->symbol_table->{ $name }{shortname} = $name;
 
   $fa->vp_type($s1, 'Start');
   $fa->vp_name($s1, $name);
@@ -238,42 +215,23 @@ sub convert_group {
   return ($s1, $s2);
 }
 
-sub convert_conjunction {
+sub convert_binary_helper {
   my ($pattern, $fa, $after) = @_;
+
+  my $name = {
+
+    conjunction => '#conjunction',
+    orderedConjunction => '#ordered_conjunction',
+    orderedChoice => '#ordered_choice',
+    exclusion => '#exclusion',
+
+  }->{ _pattern_type($pattern) };
 
   return _convert_binary_operation($pattern,
-    $fa, $after, "#conjunction");
+    $fa, $after, $name);
 }
 
-sub convert_ordered_conjunction {
-  my ($pattern, $fa, $after) = @_;
-
-  return _convert_binary_operation($pattern,
-    $fa, $after, "#ordered_conjunction");
-}
-
-sub convert_ordered_choice {
-  my ($pattern, $fa, $after) = @_;
-
-  return _convert_binary_operation($pattern,
-    $fa, $after, "#ordered_choice");
-}
-
-sub convert_one_or_more {
-  my ($pattern, $fa, $after) = @_;
-  return _convert_choosy_one_or_more(
-    $pattern,
-    _pattern_p($pattern), $fa, $after, _pattern_type($pattern));
-}
-
-sub convert_greedy_one_or_more {
-  my ($pattern, $fa, $after) = @_;
-  return _convert_choosy_one_or_more(
-    $pattern,
-    _pattern_p($pattern), $fa, $after, _pattern_type($pattern));
-}
-
-sub convert_lazy_one_or_more {
+sub convert_one_or_more_helper {
   my ($pattern, $fa, $after) = @_;
   return _convert_choosy_one_or_more(
     $pattern,
@@ -418,11 +376,6 @@ sub _convert_binary_operation {
   );
 
   return ($anon_start, $anon_final);
-}
-
-sub convert_subtraction {
-  my ($pattern, $fa, $after) = @_;
-  return _convert_binary_operation($pattern, $fa, $after, "#exclusion");
 }
 
 1;
